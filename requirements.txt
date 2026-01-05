@@ -1,5 +1,6 @@
 # digicol-scraper 依赖
 requests>=2.31.0
+requests[socks]>=2.31.0  # SOCKS 代理支持
 beautifulsoup4>=4.12.2
 pillow>=10.0.1
 playwright>=1.40.0

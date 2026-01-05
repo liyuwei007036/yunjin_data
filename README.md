@@ -24,7 +24,14 @@ playwright install chromium
 
 ## 使用方法
 
+**注意：** 需要从 `src` 目录运行，或者设置 `PYTHONPATH` 环境变量。
+
+### 方式一：从 src 目录运行（推荐）
+
 ```bash
+# 进入 src 目录
+cd src
+
 # 测试模式：抓取 10 个文物
 python -m digicol_scraper.scraper --mode test --limit 10
 
@@ -36,6 +43,20 @@ python -m digicol_scraper.scraper --mode download-only --uuid <uuid>
 
 # 仅拼接模式：拼接已下载的瓦片
 python -m digicol_scraper.scraper --mode merge-only --uuid <uuid>
+```
+
+### 方式二：从项目根目录运行（设置 PYTHONPATH）
+
+**PowerShell:**
+```powershell
+$env:PYTHONPATH = "$PWD\src"
+python -m digicol_scraper.scraper --mode test --limit 10
+```
+
+**CMD:**
+```cmd
+set PYTHONPATH=%CD%\src
+python -m digicol_scraper.scraper --mode test --limit 10
 ```
 
 ## 项目结构

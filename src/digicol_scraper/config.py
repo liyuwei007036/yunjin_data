@@ -49,7 +49,7 @@ DOWNLOAD_ONLY_HIGHEST_LEVEL = True
 
 # ==================== Proxy Configuration ====================
 
-PROXY_ENABLED = True
+PROXY_ENABLED = False
 PROXY_TYPE = "socks5"
 PROXY_HOST = "127.0.0.1"
 PROXY_PORT = 9567

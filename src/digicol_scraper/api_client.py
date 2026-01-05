@@ -70,9 +70,12 @@ class ApiClient:
                 response = self.session.post(url, json=data, timeout=TIMEOUT)
                 response.raise_for_status()
                 return response.json()
-            except requests.exceptions.RequestException:
+            except requests.exceptions.RequestException as e:
                 if attempt < max_retries - 1:
+                    print(f"Request failed (attempt {attempt + 1}/{max_retries}): {e}")
                     time.sleep((attempt + 1) * 2)
+                else:
+                    print(f"Request failed after {max_retries} attempts: {e}")
         return None
 
     def get_artifacts_page(self, page: int) -> Optional[Dict]:
@@ -99,8 +102,12 @@ class ApiClient:
         Returns:
             List of artifacts, each as a dictionary
         """
+        print(f"Fetching artifacts from {QUERY_LIST_URL}...")
+        if PROXY_ENABLED:
+            print(f"Using proxy: {PROXY_TYPE}://{PROXY_HOST}:{PROXY_PORT}")
         first = self.get_artifacts_page(1)
         if not first:
+            print("Failed to fetch first page of artifacts")
             return []
 
         total_pages = first.get("pagecount", 0)
