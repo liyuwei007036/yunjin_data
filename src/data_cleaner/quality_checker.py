@@ -13,6 +13,8 @@ import cv2
 import numpy as np
 from PIL import Image
 
+from src.data_cleaner.content_analyzer import ContentAnalyzer
+
 
 @dataclass
 class QualityResult:
@@ -63,6 +65,16 @@ class QualityChecker:
             config: 质量检查配置，默认为标准配置
         """
         self.config = config or QualityConfig()
+        
+        # 如果启用了内容检查，初始化内容分析器
+        if self.config.check_content_ratio or self.config.check_border_region:
+            self.content_analyzer = ContentAnalyzer(
+                min_content_ratio=self.config.min_content_ratio,
+                max_border_ratio=self.config.max_border_ratio,
+                border_region_width=self.config.border_region_width,
+            )
+        else:
+            self.content_analyzer = None
 
     def check(self, image_path: str | Path) -> QualityResult:
         """
@@ -154,6 +166,25 @@ class QualityChecker:
             result.is_passed = False
             result.rejection_reason = f"too_blurry({result.sharpness:.2f}<{self.config.blur_threshold})"
             return result
+
+        # 5. 内容占比检查和边界区域检查（如果启用）
+        if (self.config.check_content_ratio or self.config.check_border_region) and self.content_analyzer:
+            # 只进行一次内容分析
+            content_result = self.content_analyzer.analyze_content(path)
+            
+            # 内容占比检查
+            if self.config.check_content_ratio:
+                if content_result.content_ratio < self.config.min_content_ratio:
+                    result.is_passed = False
+                    result.rejection_reason = f"content_ratio_too_low({content_result.content_ratio:.2f}<{self.config.min_content_ratio})"
+                    return result
+            
+            # 边界区域检查（适用于所有图片）
+            if self.config.check_border_region:
+                if content_result.border_ratio > self.config.max_border_ratio:
+                    result.is_passed = False
+                    result.rejection_reason = f"border_ratio_too_high({content_result.border_ratio:.2f}>{self.config.max_border_ratio})"
+                    return result
 
         return result
 

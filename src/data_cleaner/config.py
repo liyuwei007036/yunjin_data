@@ -91,6 +91,13 @@ class QualityConfig:
     # 是否检查图片损坏
     check_corruption: bool = True
 
+    # 内容检查配置
+    check_content_ratio: bool = False  # 是否检查内容占比
+    min_content_ratio: float = 0.3      # 最小内容占比阈值
+    check_border_region: bool = False   # 是否检查边界区域（适用于所有图片）
+    max_border_ratio: float = 0.5       # 最大边界空白占比阈值
+    border_region_width: float = 0.15   # 边界区域宽度比例（默认15%）
+
 
 # ==================== Style Classification Configuration ====================
 
@@ -112,6 +119,11 @@ class StyleConfig:
 
     # 批量推理大小
     batch_size: int = 32
+
+    # 智能风格检查配置
+    use_content_aware_check: bool = False  # 是否结合内容占比
+    content_ratio_weight: float = 0.3     # 内容占比权重
+    multi_scale_check: bool = False        # 是否使用多尺度检查
 
 
 # ==================== Caption Configuration ====================
@@ -202,6 +214,11 @@ def load_config(config_path: Optional[Path] = None) -> CleanerConfig:
         blur_threshold=quality_data.get("blur_threshold", 50.0),
         check_alpha_channel=quality_data.get("check_alpha_channel", True),
         check_corruption=quality_data.get("check_corruption", True),
+        check_content_ratio=quality_data.get("check_content_ratio", False),
+        min_content_ratio=quality_data.get("min_content_ratio", 0.3),
+        check_border_region=quality_data.get("check_border_region", False),
+        max_border_ratio=quality_data.get("max_border_ratio", 0.5),
+        border_region_width=quality_data.get("border_region_width", 0.15),
     )
 
     # 加载风格分类配置
@@ -212,6 +229,9 @@ def load_config(config_path: Optional[Path] = None) -> CleanerConfig:
         clip_model_name=style_data.get("clip_model_name", "openai/clip-vit-base-patch32"),
         use_gpu=style_data.get("use_gpu", True),
         batch_size=style_data.get("batch_size", 32),
+        use_content_aware_check=style_data.get("use_content_aware_check", False),
+        content_ratio_weight=style_data.get("content_ratio_weight", 0.3),
+        multi_scale_check=style_data.get("multi_scale_check", False),
     )
 
     # 加载自动标注配置

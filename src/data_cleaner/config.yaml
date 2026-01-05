@@ -40,6 +40,13 @@ quality:
   # 是否检查图片损坏
   check_corruption: true
 
+  # 内容检查配置（默认关闭，保持向后兼容）
+  check_content_ratio: true  # 是否检查内容占比
+  min_content_ratio: 0.3      # 最小内容占比阈值
+  check_border_region: true # 是否检查边界区域（适用于所有图片）
+  max_border_ratio: 0.5       # 最大边界空白占比阈值
+  border_region_width: 0.15   # 边界区域宽度比例（默认15%）
+
 
 # ==================== 风格分类配置 ====================
 style:
@@ -57,6 +64,11 @@ style:
 
   # 批量推理大小
   batch_size: 32
+
+  # 智能风格检查配置（默认关闭，保持向后兼容）
+  use_content_aware_check: true   # 是否结合内容占比
+  content_ratio_weight: 0.3       # 内容占比权重
+  multi_scale_check: true         # 是否使用多尺度检查
 
 
 # ==================== 自动标注配置 ====================
