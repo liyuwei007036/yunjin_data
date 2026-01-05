@@ -3,24 +3,28 @@
 云锦图片数据清洗工具 - 启动脚本
 
 使用方法:
-    python run_cleaner.py                    # 使用默认配置
-    python run_cleaner.py --config custom.yaml  # 指定配置文件
-    python run_cleaner.py --input /path/to/images  # 覆盖输入目录
+    # 方式1: 使用 PYTHONPATH（推荐）
+    PYTHONPATH=src python src/data_cleaner/run_cleaner.py
+
+    # 方式2: 使用 python -m
+    python -m src.data_cleaner.run_cleaner
+
+    # 方式3: 安装为开发模式
+    pip install -e .
+    run-cleaner
 """
 
 import argparse
 import sys
 from pathlib import Path
 
-# 确保 src 目录在 Python 路径中（支持直接运行脚本）
+# 添加 src 目录到 Python 路径
 _src_path = Path(__file__).parent.parent.parent
 if str(_src_path) not in sys.path:
     sys.path.insert(0, str(_src_path))
 
-# 移除 data_cleaner 目录，避免与 data_cleaner.py 文件冲突
-_data_cleaner_dir = Path(__file__).parent
-if str(_data_cleaner_dir) in sys.path:
-    sys.path.remove(str(_data_cleaner_dir))
+from data_cleaner.config import load_config, get_output_subdirs
+from data_cleaner.cleaner import DataCleaner
 
 
 def main():
@@ -30,17 +34,20 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
-    # 使用默认配置文件
-    python run_cleaner.py
+    # 方式1: 使用 PYTHONPATH
+    PYTHONPATH=src python src/data_cleaner/run_cleaner.py
 
-    # 使用自定义配置文件
-    python run_cleaner.py --config my_config.yaml
+    # 方式2: 使用 python -m
+    python -m src.data_cleaner.run_cleaner
 
-    # 覆盖配置中的输入输出目录
-    python run_cleaner.py --input ./images --output ./cleaned
+    # 方式3: 使用自定义配置
+    python -m src.data_cleaner.run_cleaner --config my_config.yaml
 
-    # 禁用GPU加速
-    python run_cleaner.py --no-gpu
+    # 方式4: 覆盖输入输出目录
+    python -m src.data_cleaner.run_cleaner --input ./images --output ./cleaned
+
+    # 方式5: 禁用GPU加速
+    python -m src.data_cleaner.run_cleaner --no-gpu
         """
     )
 
@@ -83,9 +90,6 @@ def main():
 
     args = parser.parse_args()
 
-    # 加载配置
-    from data_cleaner.config import load_config, get_output_subdirs
-
     config_path = Path(args.config) if args.config else None
     config = load_config(config_path)
 
@@ -118,12 +122,9 @@ def main():
         print(f"    {name}: {config.output_dir / path}")
     print("-" * 60)
 
-    # 导入并运行清洗器
-    from data_cleaner.cleaner import DataCleaner
-
+    # 创建并运行清洗器
     cleaner = DataCleaner(config)
 
-    # 运行清洗
     statistics = cleaner.clean(
         input_dir=config.input_dir,
         output_dir=config.output_dir,
