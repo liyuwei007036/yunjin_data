@@ -2,40 +2,56 @@
 Configuration module for digicol-scraper.
 
 集中管理所有可配置的参数，包括 API 地址、代理设置、下载参数等。
+配置从 config.yaml 文件加载。
 """
 
-import os
 from pathlib import Path
+import yaml
+
+# ==================== Load Configuration from YAML ====================
+
+_CONFIG_FILE = Path(__file__).parent / "config.yaml"
+
+def _load_config():
+    """Load configuration from YAML file."""
+    if not _CONFIG_FILE.exists():
+        raise FileNotFoundError(
+            f"Configuration file not found: {_CONFIG_FILE}. "
+            "Please ensure config.yaml exists in the digicol_scraper directory."
+        )
+    
+    with open(_CONFIG_FILE, "r", encoding="utf-8") as f:
+        config = yaml.safe_load(f)
+    
+    return config
+
+_config = _load_config()
 
 # ==================== Base Configuration ====================
 
-BASE_URL = "https://digicol.dpm.org.cn"
-QUERY_LIST_URL = f"{BASE_URL}/cultural/queryList"
-DETAIL_URL = f"{BASE_URL}/cultural/detail"
-DETAILS_URL = f"{BASE_URL}/cultural/details"
-IMAGE_CDN = "https://shuziwenwu-1259446244.cos.ap-beijing.myqcloud.com"
+BASE_URL = _config["base_url"]
+QUERY_LIST_URL = _config["query_list_url"]
+DETAIL_URL = _config["detail_url"]
+DETAILS_URL = _config["details_url"]
+IMAGE_CDN = _config["image_cdn"]
 
 # ==================== HTTP Headers ====================
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-    "Accept": "application/json, text/plain, */*",
-    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-    "Content-Type": "application/json",
-    "Referer": BASE_URL,
-    "Origin": BASE_URL,
-}
+HEADERS = _config["headers"].copy()
+# Ensure Referer and Origin use BASE_URL dynamically
+HEADERS["Referer"] = BASE_URL
+HEADERS["Origin"] = BASE_URL
 
 # ==================== Category Configuration ====================
 
-CATEGORY_ID = "4"
-PAGE_SIZE = 32
+CATEGORY_ID = _config["category_id"]
+PAGE_SIZE = _config["page_size"]
 
 # ==================== Download Configuration ====================
 
-MAX_WORKERS = 5
-REQUEST_DELAY = 1.0
-TIMEOUT = 30
+MAX_WORKERS = _config["max_workers"]
+REQUEST_DELAY = _config["request_delay"]
+TIMEOUT = _config["timeout"]
 
 # ==================== Output Configuration ====================
 
@@ -43,19 +59,19 @@ OUTPUT_DIR = Path(__file__).parent.parent.parent / "output"
 
 # ==================== Tile Configuration ====================
 
-TILE_SIZE = 510
-TILE_EXTENSION = "png"
-DOWNLOAD_ONLY_HIGHEST_LEVEL = True
+TILE_SIZE = _config["tile_size"]
+TILE_EXTENSION = _config["tile_extension"]
+DOWNLOAD_ONLY_HIGHEST_LEVEL = _config["download_only_highest_level"]
 
 # ==================== Proxy Configuration ====================
 
-PROXY_ENABLED = False
-PROXY_TYPE = "socks5"
-PROXY_HOST = "127.0.0.1"
-PROXY_PORT = 9567
-PROXY_USER = None
-PROXY_PASSWORD = None
+PROXY_ENABLED = _config["proxy_enabled"]
+PROXY_TYPE = _config["proxy_type"]
+PROXY_HOST = _config["proxy_host"]
+PROXY_PORT = _config["proxy_port"]
+PROXY_USER = _config["proxy_user"]
+PROXY_PASSWORD = _config["proxy_password"]
 
 # ==================== Progress Configuration ====================
 
-PROGRESS_UPDATE_INTERVAL = 10
+PROGRESS_UPDATE_INTERVAL = _config["progress_update_interval"]

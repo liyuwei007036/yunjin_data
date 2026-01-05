@@ -3,10 +3,10 @@
 
 # ==================== 基础配置 ====================
 # 输入目录（爬虫输出的原始图片目录）
-input_dir: "C:\\Users\\booster\\Pictures\\output"
+input_dir: "D:\\codes\\yunjin_data\\output"
 
 # 输出目录（清洗后图片存放目录）
-output_dir: "C:\\Users\\booster\\Pictures\\output\\cleaned"
+output_dir: "D:\\codes\\yunjin_data\\output\\cleaned"
 
 # 处理模式：quality(仅质量)、style(仅风格)、full(完整)
 mode: "full"
@@ -40,7 +40,7 @@ style:
   review_threshold: 0.40
 
   # CLIP模型名称
-  clip_model_name: "C:\\Users\\booster\\models\\clip-vit-base-patch32"
+  clip_model_name: "D:\\models\\clip-vit-base-patch32"
 
   # 是否使用GPU
   use_gpu: true
@@ -55,13 +55,13 @@ caption:
   enabled: true
 
   # BLIP模型名称
-  blip_model_name: "Salesforce/blip-image-captioning-base"
+  blip_model_name: "D:\\models\\blip-image-captioning-base"
 
   # 是否使用GPU
   use_gpu: true
 
   # Caption最大长度
-  max_length: 50
+  max_length: 70
 
   # Caption前缀（必需，用于SD1.5 LoRA训练的触发词）
   # 前缀会添加到所有生成的caption前面，确保模型学习到"cloud brocade"概念

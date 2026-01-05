@@ -1,0 +1,47 @@
+# Configuration file for digicol-scraper
+# 集中管理所有可配置的参数，包括 API 地址、代理设置、下载参数等
+
+# ==================== Base Configuration ====================
+base_url: "https://digicol.dpm.org.cn"
+query_list_url: "https://digicol.dpm.org.cn/cultural/queryList"
+detail_url: "https://digicol.dpm.org.cn/cultural/detail"
+details_url: "https://digicol.dpm.org.cn/cultural/details"
+image_cdn: "https://shuziwenwu-1259446244.cos.ap-beijing.myqcloud.com"
+
+# ==================== HTTP Headers ====================
+headers:
+  User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+  Accept: "application/json, text/plain, */*"
+  Accept-Language: "zh-CN,zh;q=0.9,en;q=0.8"
+  Content-Type: "application/json"
+  Referer: "https://digicol.dpm.org.cn"
+  Origin: "https://digicol.dpm.org.cn"
+
+# ==================== Category Configuration ====================
+category_id: "4"
+page_size: 32
+
+# ==================== Download Configuration ====================
+max_workers: 5
+request_delay: 1.0
+timeout: 30
+
+# ==================== Output Configuration ====================
+# output_dir 将在 config.py 中动态计算，基于配置文件位置
+
+# ==================== Tile Configuration ====================
+tile_size: 510
+tile_extension: "png"
+download_only_highest_level: true
+
+# ==================== Proxy Configuration ====================
+proxy_enabled: false
+proxy_type: "socks5"
+proxy_host: "127.0.0.1"
+proxy_port: 9567
+proxy_user: null
+proxy_password: null
+
+# ==================== Progress Configuration ====================
+progress_update_interval: 10
+
