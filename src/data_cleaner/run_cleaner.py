@@ -74,7 +74,7 @@ def main():
     args = parser.parse_args()
 
     # 加载配置
-    from data_cleaner.config import load_config, get_output_subdirs
+    from .config import load_config, get_output_subdirs
 
     config_path = Path(args.config) if args.config else None
     config = load_config(config_path)
@@ -109,7 +109,7 @@ def main():
     print("-" * 60)
 
     # 导入并运行清洗器
-    from data_cleaner import DataCleaner
+    from .data_cleaner import DataCleaner
 
     cleaner = DataCleaner(config)
 
