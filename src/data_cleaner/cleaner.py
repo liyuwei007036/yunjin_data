@@ -14,19 +14,14 @@ from typing import Optional
 
 from tqdm import tqdm
 
-from data_cleaner.config import (
+from src.data_cleaner.config import (
     CleanerConfig,
-    QualityConfig,
     StyleConfig,
-    APPROVED_DIR,
-    REJECTED_QUALITY_DIR,
-    REJECTED_STYLE_DIR,
-    REVIEW_DIR,
-    REPORTS_DIR,
     PROJECT_ROOT,
+    get_output_dir_path,
 )
-from data_cleaner.quality_checker import QualityChecker, QualityResult
-from data_cleaner.style_classifier import StyleClassifier, StyleResult
+from src.data_cleaner.quality_checker import QualityChecker, QualityResult
+from src.data_cleaner.style_classifier import StyleClassifier, StyleResult
 
 
 @dataclass
@@ -92,9 +87,6 @@ class ImageMetadata:
         """从清洗结果创建元数据"""
         metadata = cls()
 
-        # 从文物名目录获取信息
-        metadata.artifact_name = image_path.parent.name
-
         metadata.status = final_status
         metadata.processed_at = datetime.now().isoformat()
 
@@ -131,16 +123,24 @@ class DataCleaner:
         self.quality_checker = QualityChecker(self.config.quality)
         self.style_checker = StyleClassifier(self.config.style)
 
+        # 初始化输出目录路径（基于配置的输出目录）
+        output_dir = Path(self.config.output_dir)
+        self.approved_dir = get_output_dir_path("approved", output_dir)
+        self.rejected_quality_dir = get_output_dir_path("rejected_quality", output_dir)
+        self.rejected_style_dir = get_output_dir_path("rejected_style", output_dir)
+        self.review_dir = get_output_dir_path("review", output_dir)
+        self.reports_dir = get_output_dir_path("reports", output_dir)
+
         # 创建输出目录
         self._create_output_dirs()
 
     def _create_output_dirs(self):
         """创建输出目录"""
-        APPROVED_DIR.mkdir(parents=True, exist_ok=True)
-        REJECTED_QUALITY_DIR.mkdir(parents=True, exist_ok=True)
-        REJECTED_STYLE_DIR.mkdir(parents=True, exist_ok=True)
-        REVIEW_DIR.mkdir(parents=True, exist_ok=True)
-        REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+        self.approved_dir.mkdir(parents=True, exist_ok=True)
+        self.rejected_quality_dir.mkdir(parents=True, exist_ok=True)
+        self.rejected_style_dir.mkdir(parents=True, exist_ok=True)
+        self.review_dir.mkdir(parents=True, exist_ok=True)
+        self.reports_dir.mkdir(parents=True, exist_ok=True)
 
     def find_images(self, input_dir: Path) -> list[Path]:
         """
@@ -148,6 +148,7 @@ class DataCleaner:
 
         爬虫输出结构：
             output/{文物名}_{编号}/merged/full_image.png
+            output/{文物名}_{编号}/tiles/level_{level}/{col}_{row}.png
 
         Args:
             input_dir: 输入目录
@@ -155,17 +156,32 @@ class DataCleaner:
         Returns:
             list[Path]: 图片路径列表
         """
+        import re
+        
         input_path = Path(input_dir)
         if not input_path.exists():
             return []
 
         image_paths = []
 
-        # 查找所有 {dir}/merged/full_image.png
+        # 1. 查找所有 {dir}/merged/full_image.png
         for merged_dir in input_path.rglob("merged"):
             image_path = merged_dir / "full_image.png"
             if image_path.exists():
                 image_paths.append(image_path)
+
+        # 2. 查找所有瓦片图 {dir}/tiles/level_{level}/{col}_{row}.png
+        for tiles_dir in input_path.rglob("tiles"):
+            # 查找所有 level_* 目录
+            for level_dir in tiles_dir.iterdir():
+                if level_dir.is_dir() and level_dir.name.startswith("level_"):
+                    # 查找所有符合 {col}_{row}.png 格式的图片
+                    for tile_file in level_dir.iterdir():
+                        if tile_file.is_file() and tile_file.suffix.lower() == ".png":
+                            # 验证文件名格式：数字_数字.png
+                            match = re.match(r"^(\d+)_(\d+)\.png$", tile_file.name)
+                            if match:
+                                image_paths.append(tile_file)
 
         return sorted(set(image_paths))
 
@@ -183,7 +199,27 @@ class DataCleaner:
 
         # 1. 质量检查
         if self.config.mode in ("quality", "full"):
-            quality_result = self.quality_checker.check(path)
+            # 判断是否是瓦片图（路径包含 tiles/level_）
+            is_tile = "tiles" in str(path) and "level_" in str(path)
+            
+            # 对瓦片图使用更宽松的标准（瓦片图通常是 510x510）
+            if is_tile:
+                from src.data_cleaner.config import QualityConfig
+                tile_config = QualityConfig(
+                    min_width=510,  # 瓦片图标准尺寸
+                    min_height=510,
+                    blur_threshold=self.config.quality.blur_threshold,
+                    check_alpha_channel=self.config.quality.check_alpha_channel,
+                    check_corruption=self.config.quality.check_corruption,
+                )
+                # 临时使用瓦片图配置
+                original_config = self.quality_checker.config
+                self.quality_checker.config = tile_config
+                quality_result = self.quality_checker.check(path)
+                self.quality_checker.config = original_config
+            else:
+                quality_result = self.quality_checker.check(path)
+            
             if not quality_result.is_passed:
                 return CleaningResult(
                     image_path=path,
@@ -284,6 +320,29 @@ class DataCleaner:
 
         return statistics
 
+    def _get_artifact_name(self, image_path: Path) -> str:
+        """
+        从图片路径中提取文物名（目录名）
+
+        Args:
+            image_path: 图片路径
+
+        Returns:
+            str: 文物名（目录名）
+        """
+        path = Path(image_path)
+        
+        # 如果是 merged/full_image.png，文物名在 parent.parent
+        if path.parent.name == "merged":
+            return path.parent.parent.name
+        
+        # 如果是 tiles/level_*/{col}_{row}.png，文物名在 parent.parent.parent
+        if path.parent.parent.name == "tiles":
+            return path.parent.parent.parent.name
+        
+        # 默认使用 parent.name
+        return path.parent.name
+
     def _move_result_file(
         self, image_path: Path, result: CleaningResult, output_base: Path
     ):
@@ -295,18 +354,33 @@ class DataCleaner:
             result: 清洗结果
             output_base: 输出基准目录
         """
+        # 获取文物名
+        artifact_name = self._get_artifact_name(image_path)
+        
         # 选择目标目录
         if result.final_status == "approved":
-            target_dir = APPROVED_DIR / image_path.parent.name
+            target_dir = self.approved_dir / artifact_name
         elif result.final_status == "rejected_quality":
-            target_dir = REJECTED_QUALITY_DIR / image_path.parent.name
+            target_dir = self.rejected_quality_dir / artifact_name
         elif result.final_status == "rejected_style":
-            target_dir = REJECTED_STYLE_DIR / image_path.parent.name
+            target_dir = self.rejected_style_dir / artifact_name
         else:  # review
-            target_dir = REVIEW_DIR / image_path.parent.name
+            target_dir = self.review_dir / artifact_name
 
         target_dir.mkdir(parents=True, exist_ok=True)
-        target_path = target_dir / image_path.name
+        
+        # 对于瓦片图，保持目录结构：tiles/level_{level}/{col}_{row}.png
+        # 对于 full_image.png，直接使用文件名
+        if image_path.parent.name == "merged":
+            target_path = target_dir / image_path.name
+        else:
+            # 瓦片图：保持相对路径结构
+            # 从 tiles 目录开始构建相对路径
+            relative_path = image_path.relative_to(image_path.parent.parent.parent)
+            target_path = target_dir / relative_path
+        
+        # 确保目标路径的父目录存在
+        target_path.parent.mkdir(parents=True, exist_ok=True)
 
         try:
             # 复制图片文件
@@ -343,6 +417,22 @@ class DataCleaner:
         rejected_style = sum(1 for r in results if r.final_status == "rejected_style")
         review = sum(1 for r in results if r.final_status == "review")
 
+        # 统计质量拒绝原因
+        quality_rejection_reasons = {}
+        for r in results:
+            if r.final_status == "rejected_quality" and r.quality_result and r.quality_result.rejection_reason:
+                reason = r.quality_result.rejection_reason
+                # 提取主要拒绝原因（去掉具体数值）
+                if reason.startswith("width_too_small"):
+                    main_reason = "width_too_small"
+                elif reason.startswith("height_too_small"):
+                    main_reason = "height_too_small"
+                elif reason.startswith("too_blurry"):
+                    main_reason = "too_blurry"
+                else:
+                    main_reason = reason
+                quality_rejection_reasons[main_reason] = quality_rejection_reasons.get(main_reason, 0) + 1
+
         # 计算平均分数
         approved_results = [r for r in results if r.final_status == "approved"]
         avg_quality_score = (
@@ -365,6 +455,7 @@ class DataCleaner:
             "approved_rate": approved / total if total > 0 else 0,
             "avg_quality_score": avg_quality_score,
             "avg_style_score": avg_style_score,
+            "quality_rejection_reasons": quality_rejection_reasons,
             "timestamp": datetime.now().isoformat(),
         }
 
@@ -376,57 +467,128 @@ class DataCleaner:
             results: 清洗结果列表
             statistics: 统计信息
         """
-        report = {
-            "statistics": statistics,
-            "details": [r.to_dict() for r in results],
-        }
-
-        report_path = REPORTS_DIR / f"cleaning_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        report_path = self.reports_dir / f"cleaning_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+        
         with open(report_path, "w", encoding="utf-8") as f:
-            json.dump(report, f, ensure_ascii=False, indent=2)
+            f.write("=" * 60 + "\n")
+            f.write("                    云锦图片数据清洗报告\n")
+            f.write("=" * 60 + "\n")
+            f.write(f"  处理时间: {statistics['timestamp']}\n")
+            f.write("-" * 60 + "\n")
+            f.write("  【图片统计】\n")
+            f.write(f"    总图片数:     {statistics['total']:>8}\n")
+            f.write(f"    通过清洗:     {statistics['approved']:>8} ({statistics['approved_rate']:.2%})\n")
+            f.write(f"    质量不达标:   {statistics['rejected_quality']:>8}\n")
+            f.write(f"    非云锦风格:   {statistics['rejected_style']:>8}\n")
+            f.write(f"    需人工复核:   {statistics['needs_review']:>8}\n")
+            f.write("-" * 60 + "\n")
+            f.write("  【质量评估】\n")
+            f.write(f"    平均清晰度:   {statistics['avg_quality_score']:>8.2f}\n")
+            f.write(f"    平均风格分:   {statistics['avg_style_score']:>8.2f}\n")
+            
+            # 质量拒绝原因统计
+            if statistics.get('quality_rejection_reasons'):
+                f.write("-" * 60 + "\n")
+                f.write("  【质量拒绝原因统计】\n")
+                reason_names = {
+                    'width_too_small': '宽度不足',
+                    'height_too_small': '高度不足',
+                    'too_blurry': '清晰度不足',
+                    'has_alpha_channel': '包含Alpha通道',
+                    'corrupted_image': '图片损坏',
+                    'file_not_exists': '文件不存在'
+                }
+                for reason, count in sorted(statistics['quality_rejection_reasons'].items(), key=lambda x: x[1], reverse=True):
+                    reason_name = reason_names.get(reason, reason)
+                    f.write(f"    {reason_name:12}: {count:>8}\n")
+            
+            f.write("-" * 60 + "\n")
+            f.write("  【输出目录】\n")
+            f.write(f"    approved    : {self.approved_dir}/\n")
+            f.write(f"    rejected_quality: {self.rejected_quality_dir}/\n")
+            f.write(f"    rejected_style: {self.rejected_style_dir}/\n")
+            f.write(f"    review      : {self.review_dir}/\n")
+            f.write(f"    reports     : {self.reports_dir}/\n")
+            f.write("-" * 60 + "\n")
+            f.write(f"  清洗完成！共处理 {statistics['total']} 张图片，\n")
+            f.write(f"  其中 {statistics['approved']} 张可用于 SD1.5 微调训练。\n")
+            f.write("=" * 60 + "\n")
+            
+            # 详细结果（可选）
+            f.write("\n" + "=" * 60 + "\n")
+            f.write("  【详细结果】\n")
+            f.write("=" * 60 + "\n")
+            for i, result in enumerate(results, 1):
+                f.write(f"\n[{i}/{len(results)}] {result.image_path}\n")
+                f.write(f"  状态: {result.final_status}\n")
+                if result.quality_result:
+                    f.write(f"  质量: 清晰度={result.quality_result.sharpness:.2f}, "
+                           f"尺寸={result.quality_result.width}x{result.quality_result.height}\n")
+                    if result.quality_result.rejection_reason:
+                        f.write(f"  拒绝原因: {result.quality_result.rejection_reason}\n")
+                if result.style_result:
+                    f.write(f"  风格: 云锦分数={result.style_result.brocade_score:.3f}, "
+                           f"是否云锦={result.style_result.is_brocade}\n")
 
         print(f"\nReport saved to: {report_path}")
 
     def export_training_json(
-        self, output_path: Path = REPORTS_DIR, caption_prefix: str = "cloud brocade, traditional Chinese textile"
+        self, output_path: Optional[Path] = None, caption_prefix: str = "cloud brocade, traditional Chinese textile"
     ):
         """
         导出训练用的JSON文件（可用于SD1.5微调）
 
         Args:
-            output_path: 输出路径
+            output_path: 输出路径，默认为 reports_dir
             caption_prefix: 图片caption前缀
         """
+        if output_path is None:
+            output_path = self.reports_dir
+        
         training_data = []
 
-        # 收集所有approved目录下的图片
-        for artifact_dir in APPROVED_DIR.iterdir():
+        # 收集所有approved目录下的图片（包括 full_image.png 和瓦片图）
+        for artifact_dir in self.approved_dir.iterdir():
             if artifact_dir.is_dir():
-                image_path = artifact_dir / "full_image.png"
                 metadata_path = artifact_dir / "metadata.json"
+                
+                # 读取元数据获取风格分数
+                style_score = 0.0
+                if metadata_path.exists():
+                    with open(metadata_path, "r", encoding="utf-8") as f:
+                        metadata = json.load(f)
+                        style_score = metadata.get("style_score", 0.0)
 
+                # 生成caption（可根据风格分数调整）
+                confidence_suffix = ""
+                if style_score >= 0.8:
+                    confidence_suffix = ", high quality cloud brocade"
+                elif style_score >= 0.7:
+                    confidence_suffix = ", detailed brocade pattern"
+
+                caption = f"{caption_prefix}{confidence_suffix}"
+
+                # 1. 查找 full_image.png
+                image_path = artifact_dir / "full_image.png"
                 if image_path.exists():
-                    # 读取元数据获取风格分数
-                    style_score = 0.0
-                    if metadata_path.exists():
-                        with open(metadata_path, "r", encoding="utf-8") as f:
-                            metadata = json.load(f)
-                            style_score = metadata.get("style_score", 0.0)
-
-                    # 生成caption（可根据风格分数调整）
-                    confidence_suffix = ""
-                    if style_score >= 0.8:
-                        confidence_suffix = ", high quality cloud brocade"
-                    elif style_score >= 0.7:
-                        confidence_suffix = ", detailed brocade pattern"
-
-                    caption = f"{caption_prefix}{confidence_suffix}"
-
                     training_data.append({
                         "image": str(image_path.relative_to(PROJECT_ROOT)),
                         "caption": caption,
                         "style_score": style_score,
                     })
+                
+                # 2. 查找所有瓦片图 tiles/level_*/{col}_{row}.png
+                tiles_dir = artifact_dir / "tiles"
+                if tiles_dir.exists():
+                    for level_dir in tiles_dir.iterdir():
+                        if level_dir.is_dir() and level_dir.name.startswith("level_"):
+                            for tile_file in level_dir.iterdir():
+                                if tile_file.is_file() and tile_file.suffix.lower() == ".png":
+                                    training_data.append({
+                                        "image": str(tile_file.relative_to(PROJECT_ROOT)),
+                                        "caption": caption,
+                                        "style_score": style_score,
+                                    })
 
         # 保存训练数据
         training_file = output_path / "training_data.json"

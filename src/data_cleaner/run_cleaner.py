@@ -136,6 +136,19 @@ def main():
     print("  【质量评估】")
     print(f"    平均清晰度:   {statistics['avg_quality_score']:>8.2f}")
     print(f"    平均风格分:   {statistics['avg_style_score']:>8.2f}")
+    if statistics.get('quality_rejection_reasons'):
+        print("-" * 60)
+        print("  【质量拒绝原因统计】")
+        for reason, count in sorted(statistics['quality_rejection_reasons'].items(), key=lambda x: x[1], reverse=True):
+            reason_name = {
+                'width_too_small': '宽度不足',
+                'height_too_small': '高度不足',
+                'too_blurry': '清晰度不足',
+                'has_alpha_channel': '包含Alpha通道',
+                'corrupted_image': '图片损坏',
+                'file_not_exists': '文件不存在'
+            }.get(reason, reason)
+            print(f"    {reason_name:12}: {count:>8}")
     print("-" * 60)
     print("  【输出目录】")
     for name, path in subdirs.items():

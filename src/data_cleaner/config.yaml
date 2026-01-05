@@ -3,10 +3,10 @@
 
 # ==================== 基础配置 ====================
 # 输入目录（爬虫输出的原始图片目录）
-input_dir: "output"
+input_dir: "C:\\Users\\booster\\Pictures\\output"
 
 # 输出目录（清洗后图片存放目录）
-output_dir: "output/cleaned"
+output_dir: "C:\\Users\\booster\\Pictures\\output\\cleaned"
 
 # 处理模式：quality(仅质量)、style(仅风格)、full(完整)
 mode: "full"
@@ -40,7 +40,7 @@ style:
   review_threshold: 0.40
 
   # CLIP模型名称
-  clip_model_name: "openai/clip-vit-base-patch32"
+  clip_model_name: "C:\\Users\\booster\\models\\clip-vit-base-patch32"
 
   # 是否使用GPU
   use_gpu: true

@@ -99,13 +99,36 @@ class QualityChecker:
             with Image.open(path) as img:
                 result.width, result.height = img.size
 
-                # 检查Alpha通道
+                # 检查Alpha通道（只拒绝真正有透明像素的图片）
                 if self.config.check_alpha_channel:
-                    result.has_alpha_channel = img.mode in ("RGBA", "LA", "P")
-                    if result.has_alpha_channel:
-                        result.is_passed = False
-                        result.rejection_reason = "has_alpha_channel"
-                        return result
+                    has_alpha = img.mode in ("RGBA", "LA", "P")
+                    result.has_alpha_channel = has_alpha
+                    
+                    if has_alpha:
+                        # 检查Alpha通道是否真的有用（是否有透明或半透明像素）
+                        if img.mode == "RGBA":
+                            # 提取Alpha通道
+                            alpha_channel = img.split()[3]
+                            # 检查是否有非完全不透明的像素（alpha < 255）
+                            alpha_array = np.array(alpha_channel)
+                            has_transparency = np.any(alpha_array < 255)
+                        elif img.mode == "LA":
+                            # LA模式：L是亮度，A是Alpha
+                            alpha_channel = img.split()[1]
+                            alpha_array = np.array(alpha_channel)
+                            has_transparency = np.any(alpha_array < 255)
+                        elif img.mode == "P":
+                            # P模式（调色板模式）：检查是否有透明色
+                            has_transparency = "transparency" in img.info
+                        else:
+                            has_transparency = False
+                        
+                        # 只有当Alpha通道真正有用时才拒绝
+                        if has_transparency:
+                            result.is_passed = False
+                            result.rejection_reason = "has_alpha_channel"
+                            return result
+                        # 如果Alpha通道都是不透明的，可以继续处理
 
         except Exception:
             result.is_corrupted = True
@@ -145,20 +168,43 @@ class QualityChecker:
             float: 清晰度分数，越高表示越清晰
         """
         try:
-            # 使用OpenCV加载图片
-            img = cv2.imread(str(image_path))
-            if img is None:
+            # 使用PIL读取图片（更可靠，支持中文路径）
+            with Image.open(image_path) as pil_img:
+                # 转换为RGB模式（如果不是的话）
+                if pil_img.mode != 'RGB':
+                    pil_img = pil_img.convert('RGB')
+                
+                # 转换为numpy数组
+                img_array = np.array(pil_img)
+                
+                # 转换为BGR格式（OpenCV使用BGR）
+                img = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
+            
+            if img is None or img.size == 0:
                 return 0.0
 
             # 转换为灰度图
-            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            if len(img.shape) == 3:
+                gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            else:
+                gray = img
+
+            # 检查图片尺寸是否有效
+            if gray.shape[0] < 3 or gray.shape[1] < 3:
+                return 0.0
 
             # 计算Laplacian方差
             laplacian = cv2.Laplacian(gray, cv2.CV_64F)
             sharpness = laplacian.var()
 
+            # 检查是否为NaN或无效值
+            if np.isnan(sharpness) or np.isinf(sharpness):
+                return 0.0
+
             return float(sharpness)
-        except Exception:
+        except Exception as e:
+            # 记录错误但不中断处理
+            # print(f"Warning: Failed to calculate sharpness for {image_path}: {e}")
             return 0.0
 
     def check_batch(
