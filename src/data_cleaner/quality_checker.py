@@ -65,8 +65,11 @@ class QualityChecker:
             config: 质量检查配置，默认为标准配置
         """
         self.config = config or QualityConfig()
-        
-        # 如果启用了内容检查，初始化内容分析器
+        self._update_content_analyzer()
+    
+    def _update_content_analyzer(self):
+        """根据当前配置更新内容分析器"""
+        # 如果启用了内容检查，初始化或更新内容分析器
         if self.config.check_content_ratio or self.config.check_border_region:
             self.content_analyzer = ContentAnalyzer(
                 min_content_ratio=self.config.min_content_ratio,

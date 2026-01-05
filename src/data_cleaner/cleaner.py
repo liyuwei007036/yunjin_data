@@ -277,7 +277,38 @@ class DataCleaner:
         # 判断是否是瓦片图（路径包含 tiles/level_）
         is_tile = "tiles" in str(path) and "level_" in str(path)
 
-        # 1. 质量检查
+        # 1. 风格检查（必须先进行，如果失败则不进行质量检查）
+        if skip_style_check and inherited_style_result is not None:
+            # 跳过风格检查，使用继承的结果
+            style_result = inherited_style_result
+        elif self.config.mode in ("style", "full"):
+            style_result = self.style_checker.classify(path)
+        else:
+            style_result = None
+
+        # 如果风格检查失败，直接返回，不进行质量检查
+        if style_result:
+            if style_result.needs_review:
+                return CleaningResult(
+                    image_path=path,
+                    quality_result=None,  # 风格检查失败，不进行质量检查
+                    style_result=style_result,
+                    final_status="review",
+                    quality_score=1.0,
+                    style_score=style_result.brocade_score,
+                )
+            elif not style_result.is_brocade:
+                return CleaningResult(
+                    image_path=path,
+                    quality_result=None,  # 风格检查失败，不进行质量检查
+                    style_result=style_result,
+                    final_status="rejected_style",
+                    quality_score=1.0,
+                    style_score=style_result.brocade_score,
+                )
+
+        # 2. 质量检查（只有在风格检查通过后才进行）
+        quality_result = None
         if self.config.mode in ("quality", "full"):
             # 对瓦片图使用目标尺寸作为最小尺寸要求（因为所有图片都会统一缩放到目标尺寸）
             if is_tile:
@@ -288,6 +319,8 @@ class DataCleaner:
                     blur_threshold=self.config.quality.blur_threshold,
                     check_alpha_channel=self.config.quality.check_alpha_channel,
                     check_corruption=self.config.quality.check_corruption,
+                    # 注意：这里没有包含 check_content_ratio 和 check_border_region
+                    # 所以它们会使用默认值 False，检查应该不会被启用
                 )
                 # 临时使用瓦片图配置
                 original_config = self.quality_checker.config
@@ -309,8 +342,12 @@ class DataCleaner:
                     )
                     original_config = self.quality_checker.config
                     self.quality_checker.config = full_image_config
+                    # 更新内容分析器以匹配新配置
+                    self.quality_checker._update_content_analyzer()
                     quality_result = self.quality_checker.check(path)
                     self.quality_checker.config = original_config
+                    # 恢复内容分析器
+                    self.quality_checker._update_content_analyzer()
                 else:
                     quality_result = self.quality_checker.check(path)
             
@@ -318,44 +355,13 @@ class DataCleaner:
                 return CleaningResult(
                     image_path=path,
                     quality_result=quality_result,
-                    style_result=None,
+                    style_result=style_result,  # 保留风格检查结果（即使通过了）
                     final_status="rejected_quality",
                     quality_score=quality_result.sharpness,
-                )
-        else:
-            quality_result = None
-
-        # 2. 风格分类
-        if skip_style_check and inherited_style_result is not None:
-            # 跳过风格检查，使用继承的结果
-            style_result = inherited_style_result
-        elif self.config.mode in ("style", "full"):
-            style_result = self.style_checker.classify(path)
-        else:
-            style_result = None
-
-        # 3. 根据风格检查结果判断
-        if style_result:
-            if style_result.needs_review:
-                return CleaningResult(
-                    image_path=path,
-                    quality_result=quality_result,
-                    style_result=style_result,
-                    final_status="review",
-                    quality_score=quality_result.sharpness if quality_result else 1.0,
-                    style_score=style_result.brocade_score,
-                )
-            elif not style_result.is_brocade:
-                return CleaningResult(
-                    image_path=path,
-                    quality_result=quality_result,
-                    style_result=style_result,
-                    final_status="rejected_style",
-                    quality_score=quality_result.sharpness if quality_result else 1.0,
-                    style_score=style_result.brocade_score,
+                    style_score=style_result.brocade_score if style_result else 1.0,
                 )
 
-        # 4. 通过所有检查
+        # 3. 通过所有检查
         return CleaningResult(
             image_path=path,
             quality_result=quality_result,
@@ -440,59 +446,38 @@ class DataCleaner:
                         self._move_result_file(tile, tile_result, output_path)
                         if pbar:
                             pbar.update(1)
-                else:
-                    # full_image未通过，所有tiles也都不通过（但需要做质量检查）
+                elif full_result.final_status == "rejected_style":
+                    # full_image风格检查失败，tiles也应该先进行风格检查
+                    # 如果tiles风格检查失败，直接返回rejected_style，不进行质量检查
                     for tile in tiles:
-                        # 先做质量检查
-                        tile_quality_result = None
-                        if self.config.mode in ("quality", "full"):
-                            from src.data_cleaner.config import QualityConfig
-                            tile_config = QualityConfig(
-                                min_width=self.config.target_width,
-                                min_height=self.config.target_height,
-                                blur_threshold=self.config.quality.blur_threshold,
-                                check_alpha_channel=self.config.quality.check_alpha_channel,
-                                check_corruption=self.config.quality.check_corruption,
-                            )
-                            original_config = self.quality_checker.config
-                            self.quality_checker.config = tile_config
-                            tile_quality_result = self.quality_checker.check(tile)
-                            self.quality_checker.config = original_config
-                            
-                            if not tile_quality_result.is_passed:
-                                # 质量检查失败，使用质量检查结果
-                                tile_result = CleaningResult(
-                                    image_path=tile,
-                                    quality_result=tile_quality_result,
-                                    style_result=None,
-                                    final_status="rejected_quality",
-                                    quality_score=tile_quality_result.sharpness,
-                                )
-                            else:
-                                # 质量检查通过，但继承full_image的拒绝状态
-                                tile_result = CleaningResult(
-                                    image_path=tile,
-                                    quality_result=tile_quality_result,
-                                    style_result=full_result.style_result,
-                                    final_status=full_result.final_status,
-                                    quality_score=tile_quality_result.sharpness,
-                                    style_score=full_result.style_score,
-                                )
-                        else:
-                            # 不做质量检查，直接继承full_image的拒绝状态
-                            tile_result = CleaningResult(
-                                image_path=tile,
-                                quality_result=None,
-                                style_result=full_result.style_result,
-                                final_status=full_result.final_status,
-                                quality_score=1.0,
-                                style_score=full_result.style_score,
-                            )
-                        
+                        tile_result = self.clean_single(tile)
                         results.append(tile_result)
                         self._move_result_file(tile, tile_result, output_path)
                         if pbar:
                             pbar.update(1)
+                else:
+                    # full_image质量检查失败但风格检查通过，tiles继承风格结果（只做质量检查）
+                    # 或者full_image是review状态，tiles也进行完整检查
+                    if full_result.style_result and full_result.style_result.is_brocade:
+                        # full_image风格检查通过，tiles继承风格结果
+                        for tile in tiles:
+                            tile_result = self.clean_single(
+                                tile, 
+                                skip_style_check=True,
+                                inherited_style_result=full_result.style_result
+                            )
+                            results.append(tile_result)
+                            self._move_result_file(tile, tile_result, output_path)
+                            if pbar:
+                                pbar.update(1)
+                    else:
+                        # full_image风格检查未通过或review，tiles进行完整检查
+                        for tile in tiles:
+                            tile_result = self.clean_single(tile)
+                            results.append(tile_result)
+                            self._move_result_file(tile, tile_result, output_path)
+                            if pbar:
+                                pbar.update(1)
             else:
                 # 没有full_image，单独处理每个tile
                 for tile in tiles:
