@@ -5,7 +5,3 @@ Cloud Brocade Data Cleaner.
 """
 
 __version__ = "0.1.0"
-
-from data_cleaner.cleaner import DataCleaner
-
-__all__ = ["DataCleaner"]
