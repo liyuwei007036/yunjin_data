@@ -15,8 +15,8 @@
 ## 安装
 
 ```bash
-# 使用 pip 安装
-pip install -e .
+# 安装依赖
+pip install -r requirements.txt
 
 # 安装 Playwright 浏览器
 playwright install chromium

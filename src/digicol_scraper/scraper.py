@@ -15,7 +15,6 @@ Scraper Main Entry for digicol-scraper.
 import argparse
 import json
 import os
-import sys
 import time
 from typing import Dict, List
 
@@ -24,9 +23,6 @@ from .tile_fetcher import TileFetcher
 from .downloader import TileDownloader
 from .tile_merger import TileMerger
 from .config import OUTPUT_DIR, DOWNLOAD_ONLY_HIGHEST_LEVEL
-
-# Add src directory to path for imports
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 class Scraper:

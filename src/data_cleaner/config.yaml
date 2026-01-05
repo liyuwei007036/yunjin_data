@@ -49,6 +49,28 @@ style:
   batch_size: 32
 
 
+# ==================== 自动标注配置 ====================
+caption:
+  # 是否启用自动标注
+  enabled: true
+
+  # BLIP模型名称
+  blip_model_name: "Salesforce/blip-image-captioning-base"
+
+  # 是否使用GPU
+  use_gpu: true
+
+  # Caption最大长度
+  max_length: 50
+
+  # Caption前缀（必需，用于SD1.5 LoRA训练的触发词）
+  # 前缀会添加到所有生成的caption前面，确保模型学习到"cloud brocade"概念
+  caption_prefix: "cloud brocade, traditional Chinese textile"
+
+  # 默认caption（当生成失败时使用）
+  default_caption: "cloud brocade, traditional Chinese textile"
+
+
 # ==================== 输出子目录配置 ====================
 output_subdirs:
   approved: "approved"

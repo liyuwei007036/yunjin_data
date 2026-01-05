@@ -201,7 +201,7 @@ class TileFetcher:
                 return None
 
     def generate_tile_urls(
-        self, tiles_url: str, level: int, rows: range, cols: range
+        self, tiles_url: str, level: int, rows: List[int], cols: List[int]
     ) -> List[str]:
         """
         Generate tile download URL list for specified level.
@@ -209,8 +209,8 @@ class TileFetcher:
         Args:
             tiles_url: Tile base URL
             level: Tile level
-            rows: Row number range
-            cols: Column number range
+            rows: Row number list
+            cols: Column number list
 
         Returns:
             List of tile download URLs

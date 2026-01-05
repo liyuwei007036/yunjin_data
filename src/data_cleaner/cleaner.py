@@ -22,6 +22,7 @@ from src.data_cleaner.config import (
 )
 from src.data_cleaner.quality_checker import QualityChecker, QualityResult
 from src.data_cleaner.style_classifier import StyleClassifier, StyleResult
+from src.data_cleaner.auto_captioner import AutoCaptioner
 
 
 @dataclass
@@ -122,6 +123,7 @@ class DataCleaner:
         self.config = config or CleanerConfig()
         self.quality_checker = QualityChecker(self.config.quality)
         self.style_checker = StyleClassifier(self.config.style)
+        self.captioner = AutoCaptioner(self.config.caption) if self.config.caption.enabled else None
 
         # 初始化输出目录路径（基于配置的输出目录）
         output_dir = Path(self.config.output_dir)
@@ -317,6 +319,14 @@ class DataCleaner:
 
         if self.config.generate_report:
             self._save_report(results, statistics)
+
+        # 生成自动标注（如果启用）
+        if self.config.caption.enabled and self.captioner:
+            print("\nGenerating annotations for approved images...")
+            try:
+                self.generate_annotations(show_progress=show_progress)
+            except Exception as e:
+                print(f"Warning: Failed to generate annotations: {e}")
 
         return statistics
 
@@ -599,6 +609,68 @@ class DataCleaner:
         print(f"Total training samples: {len(training_data)}")
 
         return training_data
+
+    def generate_annotations(
+        self, approved_dir: Optional[Path] = None, show_progress: bool = True
+    ):
+        """
+        为 approved 目录下的所有图片生成标注文件（metadata.jsonl）
+        符合 Kohya_ss 格式要求
+
+        Args:
+            approved_dir: approved 目录路径，默认使用配置的目录
+            show_progress: 是否显示进度条
+        """
+        if not self.captioner:
+            print("Auto captioner is not enabled or initialized")
+            return
+
+        approved_path = approved_dir or self.approved_dir
+
+        if not approved_path.exists():
+            print(f"Approved directory does not exist: {approved_path}")
+            return
+
+        # 收集所有图片文件（包括 full_image.png 和瓦片图）
+        image_extensions = {".png", ".jpg", ".jpeg", ".webp"}
+        image_paths = [
+            p
+            for p in approved_path.rglob("*")
+            if p.is_file() and p.suffix.lower() in image_extensions
+        ]
+
+        if not image_paths:
+            print("No images found in approved directory")
+            return
+
+        print(f"Found {len(image_paths)} images to annotate")
+
+        # 生成 caption
+        captions = self.captioner.generate_captions_batch(
+            image_paths, show_progress=show_progress
+        )
+
+        # 生成 metadata.jsonl
+        metadata_file = approved_path / "metadata.jsonl"
+        annotation_count = 0
+
+        with open(metadata_file, "w", encoding="utf-8") as f:
+            for image_path, caption in captions.items():
+                # 计算相对于 approved 目录的相对路径
+                relative_path = image_path.relative_to(approved_path)
+                # 转换为使用正斜杠的路径（Kohya_ss 要求）
+                file_name = str(relative_path).replace("\\", "/")
+
+                # 写入 JSONL 格式
+                annotation = {
+                    "file_name": file_name,
+                    "text": caption,
+                }
+                f.write(json.dumps(annotation, ensure_ascii=False) + "\n")
+                annotation_count += 1
+
+        print(f"\nAnnotations saved to: {metadata_file}")
+        print(f"Total annotations: {annotation_count}")
 
 
 def main():

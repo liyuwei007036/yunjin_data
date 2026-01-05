@@ -114,6 +114,31 @@ class StyleConfig:
     batch_size: int = 32
 
 
+# ==================== Caption Configuration ====================
+
+@dataclass
+class CaptionConfig:
+    """自动标注配置"""
+
+    # 是否启用自动标注
+    enabled: bool = True
+
+    # BLIP模型名称
+    blip_model_name: str = "Salesforce/blip-image-captioning-base"
+
+    # 是否使用GPU
+    use_gpu: bool = True
+
+    # Caption最大长度
+    max_length: int = 50
+
+    # Caption前缀（必需，用于SD1.5 LoRA训练的触发词）
+    caption_prefix: str = "cloud brocade, traditional Chinese textile"
+
+    # 默认caption（当生成失败时使用）
+    default_caption: str = "cloud brocade, traditional Chinese textile"
+
+
 # ==================== Cleaner Configuration ====================
 
 @dataclass
@@ -125,6 +150,9 @@ class CleanerConfig:
 
     # 风格分类配置
     style: StyleConfig = field(default_factory=StyleConfig)
+
+    # 自动标注配置
+    caption: CaptionConfig = field(default_factory=CaptionConfig)
 
     # 输入目录（爬虫输出的原始图片目录）
     input_dir: Path = None
@@ -179,6 +207,17 @@ def load_config(config_path: Optional[Path] = None) -> CleanerConfig:
         batch_size=style_data.get("batch_size", 32),
     )
 
+    # 加载自动标注配置
+    caption_data = yaml_config.get("caption", {})
+    caption_config = CaptionConfig(
+        enabled=caption_data.get("enabled", True),
+        blip_model_name=caption_data.get("blip_model_name", "Salesforce/blip-image-captioning-base"),
+        use_gpu=caption_data.get("use_gpu", True),
+        max_length=caption_data.get("max_length", 50),
+        caption_prefix=caption_data.get("caption_prefix", "cloud brocade, traditional Chinese textile"),
+        default_caption=caption_data.get("default_caption", "cloud brocade, traditional Chinese textile"),
+    )
+
     # 加载基础配置
     input_dir = resolve_path(yaml_config.get("input_dir", "output"))
     output_dir = resolve_path(yaml_config.get("output_dir", "output/cleaned"))
@@ -186,6 +225,7 @@ def load_config(config_path: Optional[Path] = None) -> CleanerConfig:
     return CleanerConfig(
         quality=quality_config,
         style=style_config,
+        caption=caption_config,
         input_dir=input_dir,
         output_dir=output_dir,
         mode=yaml_config.get("mode", "full"),
