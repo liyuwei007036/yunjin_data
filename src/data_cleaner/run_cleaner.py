@@ -119,7 +119,7 @@ def main():
     print("-" * 60)
 
     # 导入并运行清洗器
-    from data_cleaner import DataCleaner
+    from data_cleaner.cleaner import DataCleaner
 
     cleaner = DataCleaner(config)
 
