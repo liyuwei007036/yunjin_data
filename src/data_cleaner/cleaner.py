@@ -12,6 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+from PIL import Image
 from tqdm import tqdm
 
 from src.data_cleaner.config import (
@@ -136,6 +137,71 @@ class DataCleaner:
         # 创建输出目录
         self._create_output_dirs()
 
+    def _resize_image(self, img: Image.Image, target_width: int, target_height: int, mode: str) -> Image.Image:
+        """
+        缩放图片到目标尺寸
+        
+        Args:
+            img: PIL图片对象
+            target_width: 目标宽度
+            target_height: 目标高度
+            mode: 缩放模式 ('stretch', 'fit', 'crop')
+        
+        Returns:
+            Image.Image: 缩放后的图片
+        """
+        original_width, original_height = img.size
+        
+        # 如果尺寸已经匹配，直接返回
+        if original_width == target_width and original_height == target_height:
+            return img
+        
+        if mode == "stretch":
+            # 强制拉伸到目标尺寸
+            return img.resize((target_width, target_height), Image.Resampling.LANCZOS)
+        
+        elif mode == "fit":
+            # 等比例缩放+填充（letterbox/pillarbox）
+            # 计算缩放比例，选择较小的比例以确保图片完全包含在目标尺寸内
+            scale = min(target_width / original_width, target_height / original_height)
+            new_width = int(original_width * scale)
+            new_height = int(original_height * scale)
+            
+            # 等比例缩放
+            resized = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+            
+            # 创建目标尺寸的黑色背景
+            result = Image.new("RGB", (target_width, target_height), (0, 0, 0))
+            
+            # 计算居中位置
+            x_offset = (target_width - new_width) // 2
+            y_offset = (target_height - new_height) // 2
+            
+            # 将缩放后的图片粘贴到中心
+            result.paste(resized, (x_offset, y_offset))
+            return result
+        
+        elif mode == "crop":
+            # 等比例缩放+中心裁剪
+            # 计算缩放比例，选择较大的比例以确保填满目标尺寸
+            scale = max(target_width / original_width, target_height / original_height)
+            new_width = int(original_width * scale)
+            new_height = int(original_height * scale)
+            
+            # 等比例缩放
+            resized = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+            
+            # 计算裁剪位置（居中）
+            x_offset = (new_width - target_width) // 2
+            y_offset = (new_height - target_height) // 2
+            
+            # 裁剪到目标尺寸
+            return resized.crop((x_offset, y_offset, x_offset + target_width, y_offset + target_height))
+        
+        else:
+            # 默认使用强制拉伸
+            return img.resize((target_width, target_height), Image.Resampling.LANCZOS)
+
     def _create_output_dirs(self):
         """创建输出目录"""
         self.approved_dir.mkdir(parents=True, exist_ok=True)
@@ -204,12 +270,12 @@ class DataCleaner:
             # 判断是否是瓦片图（路径包含 tiles/level_）
             is_tile = "tiles" in str(path) and "level_" in str(path)
             
-            # 对瓦片图使用更宽松的标准（瓦片图通常是 510x510）
+            # 对瓦片图使用目标尺寸作为最小尺寸要求（因为所有图片都会统一缩放到目标尺寸）
             if is_tile:
                 from src.data_cleaner.config import QualityConfig
                 tile_config = QualityConfig(
-                    min_width=510,  # 瓦片图标准尺寸
-                    min_height=510,
+                    min_width=self.config.target_width,  # 使用配置的目标尺寸
+                    min_height=self.config.target_height,
                     blur_threshold=self.config.quality.blur_threshold,
                     check_alpha_channel=self.config.quality.check_alpha_channel,
                     check_corruption=self.config.quality.check_corruption,
@@ -321,12 +387,19 @@ class DataCleaner:
             self._save_report(results, statistics)
 
         # 生成自动标注（如果启用）
+        annotation_stats = None
         if self.config.caption.enabled and self.captioner:
             print("\nGenerating annotations for approved images...")
             try:
-                self.generate_annotations(show_progress=show_progress)
+                annotation_stats = self.generate_annotations(show_progress=show_progress)
             except Exception as e:
                 print(f"Warning: Failed to generate annotations: {e}")
+
+        # 将标注统计信息添加到总统计中
+        if annotation_stats:
+            statistics["annotation"] = annotation_stats
+        else:
+            statistics["annotation"] = None
 
         return statistics
 
@@ -393,8 +466,33 @@ class DataCleaner:
         target_path.parent.mkdir(parents=True, exist_ok=True)
 
         try:
-            # 复制图片文件
-            shutil.copy2(image_path, target_path)
+            # 所有图片统一缩放到配置的目标尺寸
+            target_width = self.config.target_width
+            target_height = self.config.target_height
+            resize_mode = self.config.resize_mode
+            
+            # 打开图片
+            with Image.open(image_path) as img:
+                # 检查是否需要处理
+                original_size = img.size
+                needs_resize = original_size != (target_width, target_height)
+                needs_convert = img.mode != "RGB"
+                
+                # 性能优化：如果尺寸和模式都匹配，直接复制
+                if not needs_resize and not needs_convert:
+                    # 直接复制文件（最快）
+                    shutil.copy2(image_path, target_path)
+                else:
+                    # 需要处理：转换为RGB（如果需要）并缩放
+                    if needs_convert:
+                        img = img.convert("RGB")
+                    
+                    # 缩放图片（根据配置的模式）
+                    if needs_resize:
+                        img = self._resize_image(img, target_width, target_height, resize_mode)
+                    
+                    # 保存处理后的图片
+                    img.save(target_path, "PNG", optimize=True)
 
             # 生成标注文件 metadata.json
             metadata = ImageMetadata.from_results(
@@ -512,6 +610,23 @@ class DataCleaner:
                     reason_name = reason_names.get(reason, reason)
                     f.write(f"    {reason_name:12}: {count:>8}\n")
             
+            # 自动标注信息
+            if statistics.get('annotation'):
+                f.write("-" * 60 + "\n")
+                f.write("  【自动标注】\n")
+                annotation_info = statistics['annotation']
+                f.write(f"    标注图片数:   {annotation_info['images_annotated']:>8}\n")
+                f.write(f"    生成标注数:   {annotation_info['annotation_count']:>8}\n")
+                f.write(f"    标注文件:     {annotation_info['metadata_file']}\n")
+            elif self.config.caption.enabled:
+                f.write("-" * 60 + "\n")
+                f.write("  【自动标注】\n")
+                f.write("    状态:         未生成（标注功能已启用但生成失败）\n")
+            else:
+                f.write("-" * 60 + "\n")
+                f.write("  【自动标注】\n")
+                f.write("    状态:         未启用\n")
+            
             f.write("-" * 60 + "\n")
             f.write("  【输出目录】\n")
             f.write(f"    approved    : {self.approved_dir}/\n")
@@ -612,7 +727,7 @@ class DataCleaner:
 
     def generate_annotations(
         self, approved_dir: Optional[Path] = None, show_progress: bool = True
-    ):
+    ) -> Optional[dict]:
         """
         为 approved 目录下的所有图片生成标注文件（metadata.jsonl）
         符合 Kohya_ss 格式要求
@@ -620,16 +735,19 @@ class DataCleaner:
         Args:
             approved_dir: approved 目录路径，默认使用配置的目录
             show_progress: 是否显示进度条
+
+        Returns:
+            dict: 标注统计信息，包含 annotation_count 和 metadata_file
         """
         if not self.captioner:
             print("Auto captioner is not enabled or initialized")
-            return
+            return None
 
         approved_path = approved_dir or self.approved_dir
 
         if not approved_path.exists():
             print(f"Approved directory does not exist: {approved_path}")
-            return
+            return None
 
         # 收集所有图片文件（包括 full_image.png 和瓦片图）
         image_extensions = {".png", ".jpg", ".jpeg", ".webp"}
@@ -641,7 +759,7 @@ class DataCleaner:
 
         if not image_paths:
             print("No images found in approved directory")
-            return
+            return None
 
         print(f"Found {len(image_paths)} images to annotate")
 
@@ -671,6 +789,12 @@ class DataCleaner:
 
         print(f"\nAnnotations saved to: {metadata_file}")
         print(f"Total annotations: {annotation_count}")
+
+        return {
+            "annotation_count": annotation_count,
+            "metadata_file": str(metadata_file),
+            "images_annotated": len(image_paths),
+        }
 
 
 def main():

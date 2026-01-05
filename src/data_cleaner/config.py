@@ -166,6 +166,13 @@ class CleanerConfig:
     # 是否生成清洗报告
     generate_report: bool = True
 
+    # 目标输出尺寸（所有图片统一缩放到此尺寸）
+    target_width: int = 512
+    target_height: int = 512
+    
+    # 缩放模式：'stretch'（强制拉伸，改变宽高比）、'fit'（等比例缩放+填充）、'crop'（等比例缩放+中心裁剪）
+    resize_mode: str = "fit"
+
     def __post_init__(self):
         if self.input_dir is None:
             self.input_dir = DEFAULT_OUTPUT_DIR
@@ -222,6 +229,11 @@ def load_config(config_path: Optional[Path] = None) -> CleanerConfig:
     input_dir = resolve_path(yaml_config.get("input_dir", "output"))
     output_dir = resolve_path(yaml_config.get("output_dir", "output/cleaned"))
 
+    # 加载目标输出尺寸配置
+    target_width = yaml_config.get("target_width", 512)
+    target_height = yaml_config.get("target_height", 512)
+    resize_mode = yaml_config.get("resize_mode", "fit")
+
     return CleanerConfig(
         quality=quality_config,
         style=style_config,
@@ -230,6 +242,9 @@ def load_config(config_path: Optional[Path] = None) -> CleanerConfig:
         output_dir=output_dir,
         mode=yaml_config.get("mode", "full"),
         generate_report=yaml_config.get("generate_report", True),
+        target_width=target_width,
+        target_height=target_height,
+        resize_mode=resize_mode,
     )
 
 

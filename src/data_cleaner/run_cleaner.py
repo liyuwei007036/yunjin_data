@@ -149,6 +149,24 @@ def main():
                 'file_not_exists': '文件不存在'
             }.get(reason, reason)
             print(f"    {reason_name:12}: {count:>8}")
+    
+    # 自动标注信息
+    if statistics.get('annotation'):
+        print("-" * 60)
+        print("  【自动标注】")
+        annotation_info = statistics['annotation']
+        print(f"    标注图片数:   {annotation_info['images_annotated']:>8}")
+        print(f"    生成标注数:   {annotation_info['annotation_count']:>8}")
+        print(f"    标注文件:     {annotation_info['metadata_file']}")
+    elif config.caption.enabled:
+        print("-" * 60)
+        print("  【自动标注】")
+        print("    状态:         未生成（标注功能已启用但生成失败）")
+    else:
+        print("-" * 60)
+        print("  【自动标注】")
+        print("    状态:         未启用")
+    
     print("-" * 60)
     print("  【输出目录】")
     for name, path in subdirs.items():
