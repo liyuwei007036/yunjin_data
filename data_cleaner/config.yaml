@@ -1,0 +1,58 @@
+# 云锦图片数据清洗工具配置文件
+# 路径说明：支持绝对路径和相对路径（相对于项目根目录）
+
+# ==================== 基础配置 ====================
+# 输入目录（爬虫输出的原始图片目录）
+input_dir: "output"
+
+# 输出目录（清洗后图片存放目录）
+output_dir: "output/cleaned"
+
+# 处理模式：quality(仅质量)、style(仅风格)、full(完整)
+mode: "full"
+
+# 是否生成清洗报告
+generate_report: true
+
+
+# ==================== 质量检查配置 ====================
+quality:
+  # 最小分辨率要求（SD1.5推荐最小尺寸）
+  min_width: 512
+  min_height: 512
+
+  # 模糊度阈值（Laplacian方差，越高越清晰）
+  blur_threshold: 50.0
+
+  # 是否检查Alpha通道
+  check_alpha_channel: true
+
+  # 是否检查图片损坏
+  check_corruption: true
+
+
+# ==================== 风格分类配置 ====================
+style:
+  # 云锦置信度阈值，大于此值认为是云锦
+  style_threshold: 0.65
+
+  # 人工复核阈值，小于此值直接拒绝
+  review_threshold: 0.40
+
+  # CLIP模型名称
+  clip_model_name: "openai/clip-vit-base-patch32"
+
+  # 是否使用GPU
+  use_gpu: true
+
+  # 批量推理大小
+  batch_size: 32
+
+
+# ==================== 输出子目录配置 ====================
+output_subdirs:
+  approved: "approved"
+  rejected_quality: "rejected_quality"
+  rejected_style: "rejected_style"
+  review: "review"
+  reports: "reports"

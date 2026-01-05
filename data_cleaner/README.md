@@ -128,7 +128,27 @@ pip install -e .
 
 ## 使用方法
 
-### 命令行
+### 方式一：Python 脚本启动（推荐）
+
+使用 `run_cleaner.py` 脚本启动，所有配置通过 YAML 文件管理：
+
+```bash
+# 使用默认配置文件
+python data_cleaner/run_cleaner.py
+
+# 使用自定义配置文件
+python data_cleaner/run_cleaner.py --config my_config.yaml
+
+# 覆盖配置参数
+python data_cleaner/run_cleaner.py --input /path/to/images --output /path/to/output
+
+# 禁用GPU
+python data_cleaner/run_cleaner.py --no-gpu
+```
+
+### 方式二：命令行工具
+
+使用已安装的命令行工具：
 
 ```bash
 # 完整清洗（质量+风格）
@@ -144,31 +164,62 @@ clean-brocade --mode style --input /path/to/images
 clean-brocade --no-gpu --input /path/to/images
 ```
 
-### Python API
+### 从 YAML 配置文件加载
 
 ```python
-from data_cleaner import DataCleaner, CleanerConfig, QualityConfig, StyleConfig
+from data_cleaner import DataCleaner
+from data_cleaner.config import load_config
 
-# 创建配置
-config = CleanerConfig(
-    quality=QualityConfig(min_width=512, blur_threshold=50.0),
-    style=StyleConfig(style_threshold=0.65, use_gpu=True),
-    mode="full",
-)
+# 从配置文件加载配置（默认 data_cleaner/config.yaml）
+config = load_config("path/to/config.yaml")
 
 # 创建清洗器
 cleaner = DataCleaner(config)
 
 # 运行清洗
-statistics = cleaner.clean(
-    input_dir="/path/to/images",
-    output_dir="/path/to/output",
-)
+statistics = cleaner.clean()
+```
 
-print(statistics)
+## YAML 配置文件
 
-# 导出训练数据
-cleaner.export_training_json()
+### 配置文件位置
+
+默认配置文件：`data_cleaner/config.yaml`
+
+### 配置示例
+
+```yaml
+# 云锦图片数据清洗工具配置文件
+
+# 基础配置
+input_dir: "output"           # 输入目录
+output_dir: "output/cleaned"  # 输出目录
+mode: "full"                  # 处理模式：quality/style/full
+generate_report: true         # 是否生成报告
+
+# 质量检查配置
+quality:
+  min_width: 512
+  min_height: 512
+  blur_threshold: 50.0
+  check_alpha_channel: true
+  check_corruption: true
+
+# 风格分类配置
+style:
+  style_threshold: 0.65       # 云锦置信度阈值
+  review_threshold: 0.40      # 人工复核阈值
+  clip_model_name: "openai/clip-vit-base-patch32"
+  use_gpu: true               # 是否使用GPU
+  batch_size: 32              # 批量推理大小
+
+# 输出子目录配置
+output_subdirs:
+  approved: "approved"
+  rejected_quality: "rejected_quality"
+  rejected_style: "rejected_style"
+  review: "review"
+  reports: "reports"
 ```
 
 ## 输入输出结构
