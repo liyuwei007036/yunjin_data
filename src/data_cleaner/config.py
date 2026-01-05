@@ -120,11 +120,6 @@ class StyleConfig:
     # 批量推理大小
     batch_size: int = 32
 
-    # 智能风格检查配置
-    use_content_aware_check: bool = False  # 是否结合内容占比
-    content_ratio_weight: float = 0.3     # 内容占比权重
-    multi_scale_check: bool = False        # 是否使用多尺度检查
-
 
 # ==================== Caption Configuration ====================
 
@@ -229,9 +224,6 @@ def load_config(config_path: Optional[Path] = None) -> CleanerConfig:
         clip_model_name=style_data.get("clip_model_name", "openai/clip-vit-base-patch32"),
         use_gpu=style_data.get("use_gpu", True),
         batch_size=style_data.get("batch_size", 32),
-        use_content_aware_check=style_data.get("use_content_aware_check", False),
-        content_ratio_weight=style_data.get("content_ratio_weight", 0.3),
-        multi_scale_check=style_data.get("multi_scale_check", False),
     )
 
     # 加载自动标注配置

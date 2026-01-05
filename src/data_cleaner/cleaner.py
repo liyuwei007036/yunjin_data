@@ -253,23 +253,32 @@ class DataCleaner:
 
         return sorted(set(image_paths))
 
-    def clean_single(self, image_path: str | Path) -> CleaningResult:
+    def clean_single(
+        self, 
+        image_path: str | Path, 
+        skip_style_check: bool = False,
+        inherited_style_result: Optional[StyleResult] = None
+    ) -> CleaningResult:
         """
         清洗单张图片
 
         Args:
             image_path: 图片路径
+            skip_style_check: 是否跳过风格检查（用于tiles继承full_image的结果）
+            inherited_style_result: 继承的风格检查结果（当skip_style_check=True时使用）
 
         Returns:
             CleaningResult: 清洗结果
         """
         path = Path(image_path)
 
+        # 判断是否是full_image.png
+        is_full_image = path.parent.name == "merged" and path.name == "full_image.png"
+        # 判断是否是瓦片图（路径包含 tiles/level_）
+        is_tile = "tiles" in str(path) and "level_" in str(path)
+
         # 1. 质量检查
         if self.config.mode in ("quality", "full"):
-            # 判断是否是瓦片图（路径包含 tiles/level_）
-            is_tile = "tiles" in str(path) and "level_" in str(path)
-            
             # 对瓦片图使用目标尺寸作为最小尺寸要求（因为所有图片都会统一缩放到目标尺寸）
             if is_tile:
                 from src.data_cleaner.config import QualityConfig
@@ -286,7 +295,24 @@ class DataCleaner:
                 quality_result = self.quality_checker.check(path)
                 self.quality_checker.config = original_config
             else:
-                quality_result = self.quality_checker.check(path)
+                # 对full_image.png，创建临时配置跳过内容占比和边界区域检查
+                if is_full_image:
+                    from src.data_cleaner.config import QualityConfig
+                    full_image_config = QualityConfig(
+                        min_width=self.config.quality.min_width,
+                        min_height=self.config.quality.min_height,
+                        blur_threshold=self.config.quality.blur_threshold,
+                        check_alpha_channel=self.config.quality.check_alpha_channel,
+                        check_corruption=self.config.quality.check_corruption,
+                        check_content_ratio=False,  # 对full_image跳过内容占比检查
+                        check_border_region=False,  # 对full_image跳过边界区域检查
+                    )
+                    original_config = self.quality_checker.config
+                    self.quality_checker.config = full_image_config
+                    quality_result = self.quality_checker.check(path)
+                    self.quality_checker.config = original_config
+                else:
+                    quality_result = self.quality_checker.check(path)
             
             if not quality_result.is_passed:
                 return CleaningResult(
@@ -300,8 +326,16 @@ class DataCleaner:
             quality_result = None
 
         # 2. 风格分类
-        if self.config.mode in ("style", "full"):
+        if skip_style_check and inherited_style_result is not None:
+            # 跳过风格检查，使用继承的结果
+            style_result = inherited_style_result
+        elif self.config.mode in ("style", "full"):
             style_result = self.style_checker.classify(path)
+        else:
+            style_result = None
+
+        # 3. 根据风格检查结果判断
+        if style_result:
             if style_result.needs_review:
                 return CleaningResult(
                     image_path=path,
@@ -320,10 +354,8 @@ class DataCleaner:
                     quality_score=quality_result.sharpness if quality_result else 1.0,
                     style_score=style_result.brocade_score,
                 )
-        else:
-            style_result = None
 
-        # 3. 通过所有检查
+        # 4. 通过所有检查
         return CleaningResult(
             image_path=path,
             quality_result=quality_result,
@@ -369,16 +401,109 @@ class DataCleaner:
         if self.config.mode in ("style", "full"):
             self.style_checker.load_model()
 
-        # 批量处理
+        # 按文物分组图片
+        grouped_images = self._group_images_by_artifact(image_paths)
+        print(f"Found {len(grouped_images)} artifacts")
+
+        # 批量处理（按文物分组处理，确保同一张图的所有部分保持一致）
         results: list[CleaningResult] = []
-        iterator = tqdm(image_paths, desc="Cleaning") if show_progress else image_paths
+        
+        # 创建进度条
+        total_images = len(image_paths)
+        if show_progress:
+            pbar = tqdm(total=total_images, desc="Cleaning")
+        else:
+            pbar = None
 
-        for path in iterator:
-            result = self.clean_single(path)
-            results.append(result)
-
-            # 移动文件到对应目录
-            self._move_result_file(path, result, output_path)
+        for artifact_name, artifact_images in grouped_images.items():
+            full_image = artifact_images["full_image"]
+            tiles = artifact_images["tiles"]
+            
+            # 先处理full_image.png（如果存在）
+            if full_image:
+                full_result = self.clean_single(full_image)
+                results.append(full_result)
+                self._move_result_file(full_image, full_result, output_path)
+                if pbar:
+                    pbar.update(1)
+                
+                # 根据full_image的结果处理所有tiles
+                if full_result.final_status == "approved":
+                    # full_image通过，所有tiles继承风格结果（只做质量检查）
+                    for tile in tiles:
+                        tile_result = self.clean_single(
+                            tile, 
+                            skip_style_check=True,
+                            inherited_style_result=full_result.style_result
+                        )
+                        results.append(tile_result)
+                        self._move_result_file(tile, tile_result, output_path)
+                        if pbar:
+                            pbar.update(1)
+                else:
+                    # full_image未通过，所有tiles也都不通过（但需要做质量检查）
+                    for tile in tiles:
+                        # 先做质量检查
+                        tile_quality_result = None
+                        if self.config.mode in ("quality", "full"):
+                            from src.data_cleaner.config import QualityConfig
+                            tile_config = QualityConfig(
+                                min_width=self.config.target_width,
+                                min_height=self.config.target_height,
+                                blur_threshold=self.config.quality.blur_threshold,
+                                check_alpha_channel=self.config.quality.check_alpha_channel,
+                                check_corruption=self.config.quality.check_corruption,
+                            )
+                            original_config = self.quality_checker.config
+                            self.quality_checker.config = tile_config
+                            tile_quality_result = self.quality_checker.check(tile)
+                            self.quality_checker.config = original_config
+                            
+                            if not tile_quality_result.is_passed:
+                                # 质量检查失败，使用质量检查结果
+                                tile_result = CleaningResult(
+                                    image_path=tile,
+                                    quality_result=tile_quality_result,
+                                    style_result=None,
+                                    final_status="rejected_quality",
+                                    quality_score=tile_quality_result.sharpness,
+                                )
+                            else:
+                                # 质量检查通过，但继承full_image的拒绝状态
+                                tile_result = CleaningResult(
+                                    image_path=tile,
+                                    quality_result=tile_quality_result,
+                                    style_result=full_result.style_result,
+                                    final_status=full_result.final_status,
+                                    quality_score=tile_quality_result.sharpness,
+                                    style_score=full_result.style_score,
+                                )
+                        else:
+                            # 不做质量检查，直接继承full_image的拒绝状态
+                            tile_result = CleaningResult(
+                                image_path=tile,
+                                quality_result=None,
+                                style_result=full_result.style_result,
+                                final_status=full_result.final_status,
+                                quality_score=1.0,
+                                style_score=full_result.style_score,
+                            )
+                        
+                        results.append(tile_result)
+                        self._move_result_file(tile, tile_result, output_path)
+                        if pbar:
+                            pbar.update(1)
+            else:
+                # 没有full_image，单独处理每个tile
+                for tile in tiles:
+                    tile_result = self.clean_single(tile)
+                    results.append(tile_result)
+                    self._move_result_file(tile, tile_result, output_path)
+                    if pbar:
+                        pbar.update(1)
+        
+        if pbar:
+            pbar.close()
 
         # 生成报告
         statistics = self._generate_statistics(results)
@@ -425,6 +550,32 @@ class DataCleaner:
         
         # 默认使用 parent.name
         return path.parent.name
+
+    def _group_images_by_artifact(self, image_paths: list[Path]) -> dict[str, dict]:
+        """
+        按文物分组图片，区分full_image和tiles
+
+        Args:
+            image_paths: 图片路径列表
+
+        Returns:
+            dict: {artifact_name: {"full_image": Path, "tiles": list[Path]}}
+        """
+        grouped = {}
+        
+        for path in image_paths:
+            artifact_name = self._get_artifact_name(path)
+            
+            if artifact_name not in grouped:
+                grouped[artifact_name] = {"full_image": None, "tiles": []}
+            
+            # 判断是full_image还是tile
+            if path.parent.name == "merged" and path.name == "full_image.png":
+                grouped[artifact_name]["full_image"] = path
+            elif "tiles" in str(path) and "level_" in str(path):
+                grouped[artifact_name]["tiles"].append(path)
+        
+        return grouped
 
     def _move_result_file(
         self, image_path: Path, result: CleaningResult, output_base: Path

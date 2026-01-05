@@ -65,11 +65,6 @@ style:
   # 批量推理大小
   batch_size: 32
 
-  # 智能风格检查配置（默认关闭，保持向后兼容）
-  use_content_aware_check: true   # 是否结合内容占比
-  content_ratio_weight: 0.3       # 内容占比权重
-  multi_scale_check: true         # 是否使用多尺度检查
-
 
 # ==================== 自动标注配置 ====================
 caption:
