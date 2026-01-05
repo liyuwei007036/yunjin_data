@@ -17,6 +17,11 @@ _src_path = Path(__file__).parent.parent.parent
 if str(_src_path) not in sys.path:
     sys.path.insert(0, str(_src_path))
 
+# 移除 data_cleaner 目录，避免与 data_cleaner.py 文件冲突
+_data_cleaner_dir = Path(__file__).parent
+if str(_data_cleaner_dir) in sys.path:
+    sys.path.remove(str(_data_cleaner_dir))
+
 
 def main():
     """主函数"""
