@@ -6,16 +6,17 @@
 
 - **图片质量检查**：分辨率检测、模糊度检测、Alpha通道检测
 - **云锦风格识别**：基于CLIP零样本分类
-- **批量处理**：支持10000+张图片批量清洗
-- **GPU加速**：支持CUDA加速推理
+- **自动标注生成**：使用BLIP模型生成图片描述，支持Kohya_ss格式
+- **批量处理**：支持10000+张图片批量清洗（包括完整图片和瓦片图）
+- **GPU加速**：支持CUDA加速推理（CLIP和BLIP）
 
 ## 清洗流程详解
 
 ### 整体流程
 
 ```
-输入图片 → 质量检查 → 风格分类 → 输出分类
-                              ├── approved/        (通过)
+输入图片 → 质量检查 → 风格分类 → 输出分类 → 自动标注（可选）
+                              ├── approved/        (通过) → metadata.jsonl
                               ├── rejected_quality/ (低质量)
                               ├── rejected_style/   (非云锦)
                               └── review/          (待复核)
@@ -74,15 +75,29 @@ computer screen, furniture, building, food, vehicle, animal
 | 0.40 ~ 0.65 | review | 边界情况，需人工复核 |
 | < 0.40 | rejected_style | 确认为非云锦风格 |
 
-### 3. 标注文件生成
+### 3. 自动标注生成 (AutoCaptioner)
 
-每个图片目录会生成 `metadata.json` 标注文件：
+清洗完成后，如果启用了自动标注功能，会使用 BLIP 模型为所有通过清洗的图片生成标注：
+
+**工作原理：**
+1. 加载 BLIP 模型 (`Salesforce/blip-image-captioning-base`)
+2. 为每张图片生成描述性文本
+3. 自动添加触发词前缀（`cloud brocade, traditional Chinese textile`）
+4. 生成 Kohya_ss 格式的 `metadata.jsonl` 文件
+
+**输出格式（Kohya_ss 兼容）：**
+```jsonl
+{"file_name": "文物名_编号/full_image.png", "text": "cloud brocade, traditional Chinese textile, intricate silk brocade with gold thread"}
+{"file_name": "文物名_编号/tiles/level_13/0_0.png", "text": "cloud brocade, traditional Chinese textile, detailed pattern section"}
+```
+
+**元数据文件：**
+每个图片目录会生成 `metadata.json` 元数据文件：
 
 ```json
 {
     "image_file": "full_image.png",
     "metadata_file": "metadata.json",
-    "artifact_name": "文物名_藏品编号",
     "status": "approved",
     "width": 2048,
     "height": 1536,
@@ -96,82 +111,49 @@ computer screen, furniture, building, food, vehicle, animal
 }
 ```
 
-### 4. 训练数据导出
-
-可选择导出 `training_data.json` 用于 SD1.5 微调：
-
-```json
-[
-    {
-        "image": "output/cleaned/approved/文物名_编号/full_image.png",
-        "caption": "cloud brocade, traditional Chinese textile",
-        "style_score": 0.85
-    }
-]
-```
-
-Caption 会根据风格分数动态调整：
-- style_score ≥ 0.8: ", high quality cloud brocade"
-- style_score ≥ 0.7: ", detailed brocade pattern"
-
 ---
 
 ## 安装
 
 ```bash
-# 进入模块目录
-cd data_cleaner
+# 安装项目依赖（从项目根目录）
+pip install -r requirements.txt
 
-# 安装依赖
+# 或安装开发模式（如果项目有 setup.py）
 pip install -e .
 ```
 
 ## 使用方法
 
-### 方式一：Python 脚本启动（推荐）
+### 方式一：Python 模块启动（推荐）
 
-使用 `run_cleaner.py` 脚本启动，所有配置通过 YAML 文件管理：
+使用 `python -m` 方式启动，所有配置通过 YAML 文件管理：
 
 ```bash
-# 使用默认配置文件
-python data_cleaner/run_cleaner.py
+# 使用默认配置文件（src/data_cleaner/config.yaml）
+python -m src.data_cleaner.run_cleaner
 
 # 使用自定义配置文件
-python data_cleaner/run_cleaner.py --config my_config.yaml
+python -m src.data_cleaner.run_cleaner --config my_config.yaml
 
 # 覆盖配置参数
-python data_cleaner/run_cleaner.py --input /path/to/images --output /path/to/output
+python -m src.data_cleaner.run_cleaner --input ./output --output ./output/cleaned
 
 # 禁用GPU
-python data_cleaner/run_cleaner.py --no-gpu
+python -m src.data_cleaner.run_cleaner --no-gpu
+
+# 安静模式（不显示进度条）
+python -m src.data_cleaner.run_cleaner --quiet
 ```
 
-### 方式二：命令行工具
-
-使用已安装的命令行工具：
-
-```bash
-# 完整清洗（质量+风格）
-clean-brocade --input /path/to/images --output /path/to/output
-
-# 仅质量检查
-clean-brocade --mode quality --input /path/to/images
-
-# 仅风格分类
-clean-brocade --mode style --input /path/to/images
-
-# 禁用GPU
-clean-brocade --no-gpu --input /path/to/images
-```
-
-### 从 YAML 配置文件加载
+### 方式二：Python 代码调用
 
 ```python
-from data_cleaner import DataCleaner
-from data_cleaner.config import load_config
+from src.data_cleaner import DataCleaner
+from src.data_cleaner.config import load_config
 
-# 从配置文件加载配置（默认 data_cleaner/config.yaml）
-config = load_config("path/to/config.yaml")
+# 从配置文件加载配置
+config = load_config("src/data_cleaner/config.yaml")
 
 # 创建清洗器
 cleaner = DataCleaner(config)
@@ -180,11 +162,22 @@ cleaner = DataCleaner(config)
 statistics = cleaner.clean()
 ```
 
+### 支持的图片类型
+
+工具支持处理两种类型的图片：
+
+1. **完整图片**：`{文物名}_{编号}/merged/full_image.png`
+   - 使用标准质量检查阈值（≥512x512）
+
+2. **瓦片图**：`{文物名}_{编号}/tiles/level_{level}/{col}_{row}.png`
+   - 使用更宽松的质量检查阈值（≥510x510，适配瓦片图标准尺寸）
+   - 保持原有目录结构
+
 ## YAML 配置文件
 
 ### 配置文件位置
 
-默认配置文件：`data_cleaner/config.yaml`
+默认配置文件：`src/data_cleaner/config.yaml`
 
 ### 配置示例
 
@@ -213,6 +206,15 @@ style:
   use_gpu: true               # 是否使用GPU
   batch_size: 32              # 批量推理大小
 
+# 自动标注配置
+caption:
+  enabled: true               # 是否启用自动标注
+  blip_model_name: "Salesforce/blip-image-captioning-base"
+  use_gpu: true               # 是否使用GPU
+  max_length: 70              # Caption最大长度
+  caption_prefix: "cloud brocade, traditional Chinese textile"  # 触发词前缀
+  default_caption: "cloud brocade, traditional Chinese textile"  # 默认caption
+
 # 输出子目录配置
 output_subdirs:
   approved: "approved"
@@ -229,8 +231,11 @@ output_subdirs:
 ```
 output/
 └── {文物名}_{藏品编号}/
-    └── merged/
-        └── full_image.png
+    ├── merged/
+    │   └── full_image.png
+    └── tiles/
+        └── level_{level}/
+            └── {col}_{row}.png
 ```
 
 ### 输出目录
@@ -240,6 +245,9 @@ output/cleaned/
 ├── approved/                 # 通过清洗（用于SD1.5训练）
 │   └── {文物名}_{藏品编号}/
 │       ├── full_image.png
+│       ├── tiles/           # 瓦片图（保持目录结构）
+│       │   └── level_{level}/
+│       │       └── {col}_{row}.png
 │       └── metadata.json
 ├── rejected_quality/         # 质量不达标
 │   └── {文物名}_{藏品编号}/
@@ -254,8 +262,9 @@ output/cleaned/
 │       ├── full_image.png
 │       └── metadata.json
 └── reports/
-    ├── cleaning_report_*.json  # 清洗报告
-    └── training_data.json      # 训练数据（可选导出）
+    ├── cleaning_report_*.txt  # 清洗报告（文本格式）
+    └── approved/
+        └── metadata.jsonl     # 训练数据（Kohya_ss格式，如果启用自动标注）
 ```
 
 ---
@@ -282,6 +291,17 @@ output/cleaned/
 | use_gpu | True | 是否使用GPU |
 | batch_size | 32 | 批量推理大小 |
 
+### CaptionConfig（自动标注）
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| enabled | True | 是否启用自动标注 |
+| blip_model_name | Salesforce/blip-image-captioning-base | BLIP模型名称 |
+| use_gpu | True | 是否使用GPU |
+| max_length | 70 | Caption最大长度 |
+| caption_prefix | cloud brocade, traditional Chinese textile | 触发词前缀（必需） |
+| default_caption | cloud brocade, traditional Chinese textile | 默认caption（生成失败时使用） |
+
 ---
 
 ## 性能预估
@@ -290,12 +310,15 @@ output/cleaned/
 |------|-----|-----|-------------------|
 | 质量检查 | 否 | 8核 | ~5分钟 |
 | CLIP分类 | RTX 3080+ | 4核 | ~30分钟 |
-| 总计 | - | - | ~40分钟 |
+| BLIP标注（可选） | RTX 3080+ | 4核 | ~20分钟 |
+| 总计（不含标注） | - | - | ~40分钟 |
+| 总计（含标注） | - | - | ~60分钟 |
 
 **优化建议：**
-- 使用 GPU 加速 CLIP 推理
+- 使用 GPU 加速 CLIP 和 BLIP 推理
 - 批量处理图片（batch_size=32）
 - 半精度推理（fp16）
+- 如果不需要自动标注，可在配置中禁用 `caption.enabled: false`
 
 ---
 
@@ -306,5 +329,5 @@ output/cleaned/
 - torch >= 2.0.0
 - torchvision >= 0.15.0
 - transformers >= 4.35.0
-- scikit-learn >= 1.3.0
 - tqdm >= 4.66.0
+- pyyaml >= 6.0.0
