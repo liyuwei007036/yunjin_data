@@ -7,6 +7,7 @@ Main Data Cleaner Module.
 
 import json
 import shutil
+import sys
 from dataclasses import dataclass, asdict
 from datetime import datetime
 from pathlib import Path
@@ -14,7 +15,12 @@ from typing import Optional
 
 from tqdm import tqdm
 
-from .config import (
+# 确保 src 目录在 Python 路径中（支持直接运行脚本）
+_src_path = Path(__file__).parent.parent.parent
+if str(_src_path) not in sys.path:
+    sys.path.insert(0, str(_src_path))
+
+from data_cleaner.config import (
     CleanerConfig,
     QualityConfig,
     StyleConfig,
@@ -25,8 +31,8 @@ from .config import (
     REPORTS_DIR,
     PROJECT_ROOT,
 )
-from .quality_checker import QualityChecker, QualityResult
-from .style_classifier import StyleClassifier, StyleResult
+from data_cleaner.quality_checker import QualityChecker, QualityResult
+from data_cleaner.style_classifier import StyleClassifier, StyleResult
 
 
 @dataclass

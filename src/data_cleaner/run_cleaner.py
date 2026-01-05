@@ -12,6 +12,11 @@ import argparse
 import sys
 from pathlib import Path
 
+# 确保 src 目录在 Python 路径中（支持直接运行脚本）
+_src_path = Path(__file__).parent.parent.parent
+if str(_src_path) not in sys.path:
+    sys.path.insert(0, str(_src_path))
+
 
 def main():
     """主函数"""
@@ -74,7 +79,7 @@ def main():
     args = parser.parse_args()
 
     # 加载配置
-    from .config import load_config, get_output_subdirs
+    from data_cleaner.config import load_config, get_output_subdirs
 
     config_path = Path(args.config) if args.config else None
     config = load_config(config_path)
@@ -109,7 +114,7 @@ def main():
     print("-" * 60)
 
     # 导入并运行清洗器
-    from .data_cleaner import DataCleaner
+    from data_cleaner import DataCleaner
 
     cleaner = DataCleaner(config)
 
