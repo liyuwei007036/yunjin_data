@@ -167,19 +167,25 @@ class QualityChecker:
             result.rejection_reason = f"too_blurry({result.sharpness:.2f}<{self.config.blur_threshold})"
             return result
 
-        # 5. 内容占比检查和边界区域检查（如果启用）
+        # ========== 5. 内容占比检查和边界区域检查（如果启用） ==========
+        # 目的：检测图片内容完整性和边界区域，避免空白/边界区域过多的图片通过检查
+        # 注意：只进行一次内容分析，避免重复计算
         if (self.config.check_content_ratio or self.config.check_border_region) and self.content_analyzer:
-            # 只进行一次内容分析
+            # 执行内容分析（包括内容占比和边界占比）
             content_result = self.content_analyzer.analyze_content(path)
             
-            # 内容占比检查
+            # 5.1 内容占比检查
+            # 目的：确保图片中有足够的有效内容（图案区域），而不是主要是空白
+            # 阈值：如果有效内容占比 < min_content_ratio，拒绝该图片
             if self.config.check_content_ratio:
                 if content_result.content_ratio < self.config.min_content_ratio:
                     result.is_passed = False
                     result.rejection_reason = f"content_ratio_too_low({content_result.content_ratio:.2f}<{self.config.min_content_ratio})"
                     return result
             
-            # 边界区域检查（适用于所有图片）
+            # 5.2 边界区域检查（适用于所有图片：full_image.png 和瓦片图）
+            # 目的：检测图片边缘是否主要是空白/背景，避免边界区域、拼接过渡区域通过检查
+            # 阈值：如果边界空白占比 > max_border_ratio，拒绝该图片
             if self.config.check_border_region:
                 if content_result.border_ratio > self.config.max_border_ratio:
                     result.is_passed = False
