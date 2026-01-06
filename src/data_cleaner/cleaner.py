@@ -18,8 +18,10 @@ from tqdm import tqdm
 from src.data_cleaner.config import (
     CleanerConfig,
     StyleConfig,
+    ConsolidateConfig,
     PROJECT_ROOT,
     get_output_dir_path,
+    load_config,
 )
 from src.data_cleaner.quality_checker import QualityChecker, QualityResult
 from src.data_cleaner.style_classifier import StyleClassifier, StyleResult
@@ -511,6 +513,17 @@ class DataCleaner:
         else:
             statistics["annotation"] = None
 
+        # 汇总 approved 图片到单一目录（使用配置中的 naming_pattern）
+        if statistics["approved"] > 0 and self.config.consolidate.enabled:
+            print("\nConsolidating approved images...")
+            # 计算输出目录（基于 approved 目录）
+            consolidate_output_dir = self.approved_dir / self.config.consolidate.output_dir
+            consolidate_stats = self.consolidate_approved_images(
+                output_dir=consolidate_output_dir,
+                naming_pattern=self.config.consolidate.naming_pattern,
+            )
+            statistics["consolidated"] = consolidate_stats
+
         return statistics
 
     def _get_artifact_name(self, image_path: Path) -> str:
@@ -932,6 +945,113 @@ class DataCleaner:
             "images_annotated": len(image_paths),
         }
 
+    def consolidate_approved_images(
+        self,
+        output_dir: Optional[Path] = None,
+        naming_pattern: str = "yunjin_{index:03d}",
+        prefix: str = "cloud brocade, traditional Chinese textile",
+        show_progress: bool = True,
+    ) -> dict:
+        """
+        将所有 approved 图片集中到一个目录，使用统一命名格式
+
+        Args:
+            output_dir: 输出目录，默认为 approved 目录下的 consolidated 子目录
+            naming_pattern: 文件命名模式，支持 {index} 占位符
+            prefix: caption 前缀
+            show_progress: 是否显示进度条
+
+        Returns:
+            dict: 统计信息，包含图片数量和文件路径
+        """
+        if output_dir is None:
+            output_dir = self.approved_dir / "consolidated"
+        else:
+            output_dir = Path(output_dir)
+
+        # 创建输出目录
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        # 收集所有 approved 图片
+        image_extensions = {".png", ".jpg", ".jpeg", ".webp"}
+        image_paths = [
+            p
+            for p in self.approved_dir.rglob("*")
+            if p.is_file() and p.suffix.lower() in image_extensions
+        ]
+
+        if not image_paths:
+            print("No approved images found")
+            return {"count": 0, "output_dir": str(output_dir)}
+
+        print(f"Found {len(image_paths)} approved images to consolidate")
+
+        # 用于存储训练数据
+        training_data = []
+
+        # 收集 caption（如果有 metadata.jsonl）
+        captions = {}
+        metadata_jsonl = self.approved_dir / "metadata.jsonl"
+        if metadata_jsonl.exists():
+            with open(metadata_jsonl, "r", encoding="utf-8") as f:
+                for line in f:
+                    annotation = json.loads(line)
+                    captions[annotation["file_name"]] = annotation["text"]
+
+        # 处理每张图片
+        for index, image_path in enumerate(sorted(image_paths), start=1):
+            # 生成新文件名
+            file_name = naming_pattern.format(index=index) + image_path.suffix
+            target_path = output_dir / file_name
+
+            # 复制图片（转换为 RGB 格式）
+            with Image.open(image_path) as img:
+                if img.mode != "RGB":
+                    img = img.convert("RGB")
+                img.save(target_path, "PNG", optimize=True)
+
+            # 获取相对路径用于查找 caption
+            relative_path = image_path.relative_to(self.approved_dir)
+            relative_path_str = str(relative_path).replace("\\", "/")
+
+            # 获取 caption（优先使用已有的 caption，否则使用配置的 prefix）
+            caption = captions.get(relative_path_str, prefix)
+
+            # 添加到训练数据
+            training_data.append({
+                "image": file_name,
+                "caption": caption,
+            })
+
+            if show_progress and index % 100 == 0:
+                print(f"  Processed {index}/{len(image_paths)} images...")
+
+        # 保存训练数据 JSON
+        training_file = output_dir / "training_data.json"
+        with open(training_file, "w", encoding="utf-8") as f:
+            json.dump(training_data, f, ensure_ascii=False, indent=2)
+
+        # 保存 metadata.jsonl（用于 Kohya_ss）
+        metadata_file = output_dir / "metadata.jsonl"
+        with open(metadata_file, "w", encoding="utf-8") as f:
+            for item in training_data:
+                annotation = {
+                    "file_name": item["image"],
+                    "text": item["caption"],
+                }
+                f.write(json.dumps(annotation, ensure_ascii=False) + "\n")
+
+        print(f"\nConsolidated {len(image_paths)} images to: {output_dir}")
+        print(f"Training data saved to: {training_file}")
+        print(f"Metadata file saved to: {metadata_file}")
+
+        return {
+            "count": len(image_paths),
+            "output_dir": str(output_dir),
+            "training_file": str(training_file),
+            "metadata_file": str(metadata_file),
+        }
+
 
 def main():
     """命令行入口"""
@@ -961,15 +1081,23 @@ def main():
 
     args = parser.parse_args()
 
-    # 创建配置
-    style_config = StyleConfig(
-        use_gpu=not args.no_gpu,
-    )
+    # 从配置文件加载配置
+    config = load_config()
 
-    config = CleanerConfig(
-        style=style_config,
-        mode=args.mode,
-    )
+    # 覆盖 GPU 设置
+    if args.no_gpu:
+        config.style.use_gpu = False
+        config.caption.use_gpu = False
+
+    # 覆盖处理模式
+    if args.mode:
+        config.mode = args.mode
+
+    # 覆盖输入/输出目录（如果提供）
+    if args.input:
+        config.input_dir = Path(args.input)
+    if args.output:
+        config.output_dir = Path(args.output)
 
     # 创建清洗器并运行
     cleaner = DataCleaner(config)
@@ -1003,6 +1131,17 @@ def main():
     print(f"    风格拒绝:     rejected_style/")
     print(f"    待复核:       review/")
     print(f"    清洗报告:     reports/")
+
+    # 显示汇总信息
+    if statistics.get("consolidated"):
+        consolidated = statistics["consolidated"]
+        print("-" * 60)
+        print("  【图片汇总】")
+        print(f"    汇总目录:     {consolidated['output_dir']}")
+        print(f"    汇总图片数:   {consolidated['count']:>8}")
+        print(f"    训练数据:     training_data.json")
+        print(f"    标注文件:     metadata.jsonl")
+
     print("-" * 60)
     print(f"  清洗完成！共处理 {statistics['total']} 张图片，")
     print(f"  其中 {statistics['approved']} 张可用于 SD1.5 微调训练。")

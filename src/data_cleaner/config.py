@@ -146,6 +146,22 @@ class CaptionConfig:
     default_caption: str = "cloud brocade, traditional Chinese textile"
 
 
+# ==================== Consolidate Configuration ====================
+
+@dataclass
+class ConsolidateConfig:
+    """图片汇总配置"""
+
+    # 是否在清洗完成后自动汇总图片到单一目录
+    enabled: bool = True
+
+    # 汇总后的输出目录（相对于 output_dir）
+    output_dir: str = "consolidated"
+
+    # 文件命名格式（{index} 从 001 开始递增）
+    naming_pattern: str = "yunjin_{index:03d}"
+
+
 # ==================== Cleaner Configuration ====================
 
 @dataclass
@@ -160,6 +176,9 @@ class CleanerConfig:
 
     # 自动标注配置
     caption: CaptionConfig = field(default_factory=CaptionConfig)
+
+    # 图片汇总配置
+    consolidate: ConsolidateConfig = field(default_factory=ConsolidateConfig)
 
     # 输入目录（爬虫输出的原始图片目录）
     input_dir: Path = None
@@ -176,7 +195,7 @@ class CleanerConfig:
     # 目标输出尺寸（所有图片统一缩放到此尺寸）
     target_width: int = 512
     target_height: int = 512
-    
+
     # 缩放模式：'stretch'（强制拉伸，改变宽高比）、'fit'（等比例缩放+填充）、'crop'（等比例缩放+中心裁剪）
     resize_mode: str = "fit"
 
@@ -237,6 +256,14 @@ def load_config(config_path: Optional[Path] = None) -> CleanerConfig:
         default_caption=caption_data.get("default_caption", "cloud brocade, traditional Chinese textile"),
     )
 
+    # 加载汇总配置
+    consolidate_data = yaml_config.get("consolidate", {})
+    consolidate_config = ConsolidateConfig(
+        enabled=consolidate_data.get("enabled", True),
+        output_dir=consolidate_data.get("output_dir", "consolidated"),
+        naming_pattern=consolidate_data.get("naming_pattern", "yunjin_{index:03d}"),
+    )
+
     # 加载基础配置
     input_dir = resolve_path(yaml_config.get("input_dir", "output"))
     output_dir = resolve_path(yaml_config.get("output_dir", "output/cleaned"))
@@ -250,6 +277,7 @@ def load_config(config_path: Optional[Path] = None) -> CleanerConfig:
         quality=quality_config,
         style=style_config,
         caption=caption_config,
+        consolidate=consolidate_config,
         input_dir=input_dir,
         output_dir=output_dir,
         mode=yaml_config.get("mode", "full"),
