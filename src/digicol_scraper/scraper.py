@@ -18,11 +18,14 @@ import os
 import time
 from typing import Dict, List
 
+import tempfile
+import shutil
+
 from .api_client import ApiClient
 from .tile_fetcher import TileFetcher
 from .downloader import TileDownloader
 from .tile_merger import TileMerger
-from .config import OUTPUT_DIR, DOWNLOAD_ONLY_HIGHEST_LEVEL
+from .config import OUTPUT_DIR, IMAGES_DIR, DOWNLOAD_ONLY_HIGHEST_LEVEL
 
 
 class Scraper:
@@ -39,23 +42,23 @@ class Scraper:
         self.api_client = ApiClient()
         self.tile_fetcher = TileFetcher()
         os.makedirs(output_dir, exist_ok=True)
+        os.makedirs(str(IMAGES_DIR), exist_ok=True)
 
-    def _get_artifact_dir(self, artifact: Dict) -> str:
+    def _get_image_path(self, artifact: Dict) -> str:
         """
-        Get artifact output directory path.
+        Get artifact output image path.
 
         Args:
             artifact: Artifact info dictionary
 
         Returns:
-            Full path to artifact output directory
+            Full path to artifact output image
         """
         name = artifact.get("name", "unknown")
-        relic_no = artifact.get("culturalRelicNo", "unknown")
         safe_name = "".join(
             c for c in name if c.isalnum() or c in (" ", "-", "_")
         )[:50]
-        return os.path.join(self.output_dir, f"{safe_name}_{relic_no}")
+        return os.path.join(str(IMAGES_DIR), f"{safe_name}.png")
 
     def _load_artifacts(self) -> List[Dict]:
         """
@@ -95,12 +98,10 @@ class Scraper:
         uuid = artifact.get("uuid")
         name = artifact.get("name", "Unknown")
 
-        artifact_dir = self._get_artifact_dir(artifact)
-        tiles_dir = os.path.join(artifact_dir, "tiles")
-        merged_dir = os.path.join(artifact_dir, "merged")
+        output_path = self._get_image_path(artifact)
 
         # Skip if already processed
-        if os.path.exists(os.path.join(merged_dir, "full_image.png")):
+        if os.path.exists(output_path):
             return True
 
         print(f"  Processing: {name}")
@@ -108,23 +109,29 @@ class Scraper:
         if not config or not config.get("levels"):
             return False
 
-        # Download tiles
-        downloader = TileDownloader(tiles_dir)
-        max_level = config.get("maxLevel", 13)
-        for level in config["levels"]:
-            if DOWNLOAD_ONLY_HIGHEST_LEVEL and level["level"] != max_level:
-                continue
-            urls = self.tile_fetcher.generate_tile_urls(
-                config["tilesUrl"], level["level"], level["rows"], level["cols"]
-            )
-            if urls:
-                downloader.download_tiles(urls, level["level"])
+        # Create temp directory for tiles
+        temp_tile_dir = tempfile.mkdtemp()
+        try:
+            # Download tiles
+            downloader = TileDownloader(temp_tile_dir)
+            max_level = config.get("maxLevel", 13)
+            for level in config["levels"]:
+                if DOWNLOAD_ONLY_HIGHEST_LEVEL and level["level"] != max_level:
+                    continue
+                urls = self.tile_fetcher.generate_tile_urls(
+                    config["tilesUrl"], level["level"], level["rows"], level["cols"]
+                )
+                if urls:
+                    downloader.download_tiles(urls, level["level"])
 
-        # Merge tiles
-        merger = TileMerger(tiles_dir, tile_size=config.get("tileSize", 510))
-        if merger.find_highest_level() >= 0:
-            merger.merge_highest_level(os.path.join(merged_dir, "full_image.png"))
-            return True
+            # Merge tiles
+            merger = TileMerger(temp_tile_dir, tile_size=config.get("tileSize", 510))
+            if merger.find_highest_level() >= 0:
+                merger.merge_highest_level(output_path)
+                return True
+        finally:
+            # Clean up temp tile directory
+            shutil.rmtree(temp_tile_dir, ignore_errors=True)
         return False
 
     def run_test(self, limit: int = 10) -> None:

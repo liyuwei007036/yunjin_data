@@ -56,6 +56,7 @@ TIMEOUT = _config["timeout"]
 # ==================== Output Configuration ====================
 
 OUTPUT_DIR = Path(__file__).parent.parent.parent / "output"
+IMAGES_DIR = OUTPUT_DIR / "images"
 
 # ==================== Tile Configuration ====================
 
