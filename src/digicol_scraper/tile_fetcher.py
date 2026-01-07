@@ -111,12 +111,15 @@ class TileFetcher:
                 # Extract image_id from captured URL
                 image_id = None
                 if captured_url[0]:
+                    print(f"  [DEBUG] Captured URL: {captured_url[0]}")
                     match = re.search(r"\?id=(\d+)", captured_url[0])
                     if match:
                         image_id = match.group(1)
+                        print(f"  [DEBUG] Extracted image_id from response: {image_id}")
 
                 # Fallback: extract from page scripts
                 if not image_id:
+                    print(f"  [DEBUG] Trying to extract image_id from page scripts...")
                     image_id = page.evaluate(
                         r"""
                         () => {
@@ -130,20 +133,35 @@ class TileFetcher:
                         }
                     """
                     )
+                    if image_id:
+                        print(f"  [DEBUG] Extracted image_id from scripts: {image_id}")
 
                 if not image_id:
+                    print(f"  [ERROR] Could not find image_id for uuid={uuid}")
                     return None
 
                 # Step 2: Visit details config page to get tile configuration
                 details_url = f"{DETAILS_URL}?id={image_id}"
+                print(f"  [DEBUG] Fetching details config from: {details_url}")
                 page.goto(details_url, wait_until="domcontentloaded", timeout=60000)
                 page.wait_for_timeout(1500)
+
+                # Check if page loaded correctly
+                page_content = page.content()
+                print(f"  [DEBUG] Page content length: {len(page_content)} chars")
 
                 config = page.evaluate(
                     """() => {
                     try {
                         const viewer = window.viewer;
-                        if (!viewer || !viewer.source) return null;
+                        if (!viewer) {
+                            console.log('window.viewer is undefined');
+                            return null;
+                        }
+                        if (!viewer.source) {
+                            console.log('viewer.source is undefined');
+                            return null;
+                        }
                         const s = viewer.source;
                         return {
                             width: s.width,
@@ -153,12 +171,19 @@ class TileFetcher:
                             tilesUrl: s.tilesUrl || "",
                             tileSize: s._tileWidth || s.tileSize || 510
                         };
-                    } catch(e) { return null; }
+                    } catch(e) {
+                        console.log('Error:', e.message);
+                        return null;
+                    }
                 }"""
                 )
 
                 if not config:
+                    print(f"  [ERROR] Failed to extract config from details page")
                     return None
+
+                print(f"  [DEBUG] Config extracted: width={config['width']}, height={config['height']}, maxLevel={config['maxLevel']}")
+                print(f"  [DEBUG] tilesUrl: {config['tilesUrl'][:80] if config['tilesUrl'] else 'EMPTY'}...")
 
                 # Build level information
                 width = config["width"]
@@ -197,7 +222,9 @@ class TileFetcher:
                 }
 
             except Exception as e:
-                print(f"Playwright error: {e}")
+                print(f"  [ERROR] Playwright exception: {type(e).__name__}: {e}")
+                import traceback
+                print(f"  [ERROR] {traceback.format_exc()}")
                 return None
 
     def generate_tile_urls(

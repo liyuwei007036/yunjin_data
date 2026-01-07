@@ -105,9 +105,18 @@ class Scraper:
             return True
 
         print(f"  Processing: {name}")
+        print(f"  [DEBUG] UUID: {uuid}")
+
         config = self.tile_fetcher.get_tile_config(uuid)
-        if not config or not config.get("levels"):
+        if not config:
+            print(f"  [ERROR] Failed to get tile config for {name}")
             return False
+
+        if not config.get("levels"):
+            print(f"  [ERROR] No levels in config for {name}")
+            return False
+
+        print(f"  [DEBUG] Config: {config['width']}x{config['height']}, maxLevel={config['maxLevel']}, tilesUrl={config['tilesUrl'][:50]}..." if config.get('tilesUrl') else f"  [DEBUG] Config: {config['width']}x{config['height']}, maxLevel={config['maxLevel']}, tilesUrl=EMPTY")
 
         # Create temp directory for tiles
         temp_tile_dir = tempfile.mkdtemp()
@@ -115,6 +124,8 @@ class Scraper:
             # Download tiles
             downloader = TileDownloader(temp_tile_dir)
             max_level = config.get("maxLevel", 13)
+            tiles_downloaded = 0
+            total_tiles = 0
             for level in config["levels"]:
                 if DOWNLOAD_ONLY_HIGHEST_LEVEL and level["level"] != max_level:
                     continue
@@ -122,13 +133,23 @@ class Scraper:
                     config["tilesUrl"], level["level"], level["rows"], level["cols"]
                 )
                 if urls:
-                    downloader.download_tiles(urls, level["level"])
+                    total_tiles = len(urls)
+                    print(f"  [DEBUG] Downloading {total_tiles} tiles for level {level['level']}")
+                    successful = downloader.download_tiles(urls, level["level"])
+                    tiles_downloaded = len(successful)
+                    print(f"  [DEBUG] Downloaded {tiles_downloaded}/{total_tiles} tiles")
 
             # Merge tiles
             merger = TileMerger(temp_tile_dir, tile_size=config.get("tileSize", 510))
-            if merger.find_highest_level() >= 0:
-                merger.merge_highest_level(output_path)
-                return True
+            highest_level = merger.find_highest_level()
+            print(f"  [DEBUG] Highest available level: {highest_level}")
+            if highest_level >= 0:
+                success = merger.merge_highest_level(output_path)
+                if success:
+                    print(f"  [SUCCESS] Saved to: {output_path}")
+                return success
+            else:
+                print(f"  [ERROR] No tiles found to merge")
         finally:
             # Clean up temp tile directory
             shutil.rmtree(temp_tile_dir, ignore_errors=True)

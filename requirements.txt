@@ -6,13 +6,20 @@ pillow>=10.0.1
 playwright>=1.40.0
 tqdm>=4.66.1
 
-# data_cleaner 依赖
+# data_cleaner 依赖 (VLM + Grounded SAM)
 opencv-python>=4.8.0
 torch>=2.0.0
 torchvision>=0.15.0
 transformers>=4.35.0
-scikit-learn>=1.3.0
+accelerate>=0.25.0
+huggingface_hub>=0.20.0
 pyyaml>=6.0
+
+# Grounded SAM 依赖
+# 注意: 需要先安装 CUDA 版本的 PyTorch
+git+https://github.com/IDEA-Research/Grounded-SAM-2.git
+segment-anything
+grounding-dino
 
 # 开发依赖
 pytest>=7.4.0

@@ -1,13 +1,8 @@
-"""
-Cloud Brocade Data Cleaner.
+"""图片清洗与图案提取模块 - 全自动智能提取文物图案用于模型微调."""
 
-云锦图片数据清洗模块，用于SD1.5微调训练数据准备。
-"""
+from .config import Config
+from .extractor import PatternExtractor
+from .image_analyzer import ImageAnalyzer, ImageType
+from .vlm_recognizer import VLMRecognizer
 
-__version__ = "0.1.0"
-
-from src.data_cleaner.cleaner import DataCleaner
-from src.data_cleaner.auto_captioner import AutoCaptioner
-from src.data_cleaner.config import CleanerConfig, CaptionConfig
-
-__all__ = ["DataCleaner", "AutoCaptioner", "CleanerConfig", "CaptionConfig"]
+__all__ = ["Config", "PatternExtractor", "ImageAnalyzer", "ImageType", "VLMRecognizer"]

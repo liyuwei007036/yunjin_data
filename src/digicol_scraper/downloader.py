@@ -102,7 +102,9 @@ class TileDownloader:
             with open(path, "wb") as f:
                 f.write(response.content)
             return True
-        except requests.exceptions.RequestException:
+        except requests.exceptions.RequestException as e:
+            # Debug: show failed tile URLs
+            print(f"  [DEBUG] Failed to download: {url} - {e}")
             return False
 
     def download_tiles(
