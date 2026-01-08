@@ -19,7 +19,7 @@ pyyaml>=6.0
 # 注意: 需要先安装 CUDA 版本的 PyTorch
 git+https://github.com/IDEA-Research/Grounded-SAM-2.git
 segment-anything
-grounding-dino
+groundingdino
 
 # 开发依赖
 pytest>=7.4.0

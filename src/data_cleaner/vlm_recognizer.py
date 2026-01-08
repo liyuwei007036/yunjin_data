@@ -4,10 +4,13 @@
 """
 
 import json
+import logging
 import re
 from typing import List
 
 from PIL import Image
+
+logger = logging.getLogger(__name__)
 
 
 class VLMRecognizer:
@@ -29,6 +32,9 @@ class VLMRecognizer:
         Args:
             model_name: 模型名称或路径
             device: 运行设备 ("cuda" 或 "cpu")
+
+        Raises:
+            RuntimeError: 当模型加载失败时
         """
         self.model_name = model_name
         self.device = device
@@ -38,17 +44,41 @@ class VLMRecognizer:
         self._load_model()
 
     def _load_model(self):
-        """加载本地模型."""
-        from transformers import Qwen2VLForConditionalGeneration, AutoProcessor
+        """加载本地模型.
 
-        print(f"加载 VLM 模型: {self.model_name}")
-        self.model = Qwen2VLForConditionalGeneration.from_pretrained(
-            self.model_name,
-            torch_dtype="auto",
-            device_map="auto",
-        )
-        self.processor = AutoProcessor.from_pretrained(self.model_name)
-        print("VLM 模型加载成功")
+        Raises:
+            RuntimeError: 当模型加载失败时
+        """
+        from transformers import Qwen2VLForConditionalGeneration, AutoProcessor
+        from pathlib import Path
+
+        # 检查模型路径是否存在
+        model_path = Path(self.model_name)
+        if not model_path.exists() and "/" not in self.model_name and "\\" not in self.model_name:
+            # HuggingFace 模型名称，不需要检查本地路径
+            pass
+        elif not model_path.exists():
+            error_msg = f"VLM 模型文件不存在: {self.model_name}"
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
+
+        logger.info(f"加载 VLM 模型: {self.model_name}")
+
+        try:
+            self.model = Qwen2VLForConditionalGeneration.from_pretrained(
+                self.model_name,
+                torch_dtype="auto",
+                device_map="auto",
+            )
+            self.processor = AutoProcessor.from_pretrained(self.model_name)
+            logger.info("VLM 模型加载成功")
+        except Exception as e:
+            error_msg = f"VLM 模型加载失败: {type(e).__name__}: {e}"
+            logger.error(error_msg)
+            raise RuntimeError(
+                f"{error_msg}\n"
+                f"请确保模型 '{self.model_name}' 已正确下载或安装。"
+            ) from e
 
     def _build_prompt(self) -> str:
         """构建通用物体识别提示词."""

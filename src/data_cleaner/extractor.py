@@ -6,9 +6,10 @@
 """
 
 import json
-import os
+import logging
+import traceback
 from pathlib import Path
-from typing import List, Optional, Dict, Tuple
+from typing import List, Optional, Dict, Tuple, Iterator
 from datetime import datetime
 
 import cv2
@@ -19,6 +20,8 @@ from tqdm import tqdm
 from .config import Config
 from .image_analyzer import ImageAnalysis, ImageAnalyzer, ImageType
 from .strategies import GroundedSAMStrategy
+
+logger = logging.getLogger(__name__)
 
 
 class PatternExtractor:
@@ -51,17 +54,21 @@ class PatternExtractor:
         Returns:
             (原始图片, 分析结果, 提取的图案列表)
         """
-        image = Image.open(image_path).convert("RGB")
-        analysis = self.analyzer.analyze(image)
-        strategy = self.strategies[analysis.type]
+        logger.info(f"处理图片: {image_path}")
 
-        patterns = strategy.extract(
-            image, analysis,
-            target_size=self.config.target_size,
-            min_crop_size=self.config.min_crop_size
-        )
-        patterns = self._post_process(patterns, analysis)
+        with Image.open(image_path) as image:
+            image = image.convert("RGB")
+            analysis = self.analyzer.analyze(image)
+            strategy = self.strategies[analysis.type]
 
+            patterns = strategy.extract(
+                image, analysis,
+                target_size=self.config.target_size,
+                min_crop_size=self.config.min_crop_size
+            )
+            patterns = self._post_process(patterns, analysis)
+
+        logger.info(f"提取到 {len(patterns)} 个图案")
         return image, analysis, patterns
 
     def extract_from_image(self, image: Image.Image, analysis: ImageAnalysis) -> List[Image.Image]:
@@ -111,7 +118,10 @@ class PatternExtractor:
         return unique
 
     def _quality_score(self, pattern: Image.Image) -> float:
-        """计算图案质量分数."""
+        """计算图案质量分数.
+
+        分数 = sharpness * (sharpness_weight + content_ratio * content_weight)
+        """
         if pattern.mode == "RGBA":
             rgb = pattern.convert("RGB")
         else:
@@ -129,9 +139,21 @@ class PatternExtractor:
         else:
             content_ratio = 1.0
 
-        score = sharpness * (0.5 + content_ratio * 0.5)
+        # 使用配置化的权重
+        sharpness_weight = self.config.quality_sharpness_weight
+        content_weight = self.config.quality_content_weight
+        score = sharpness * (sharpness_weight + content_ratio * content_weight)
 
+        logger.debug(f"质量分数: sharpness={sharpness:.2f}, content_ratio={content_ratio:.2f}, score={score:.2f}")
         return score
+
+    def _get_image_files(self, input_path: Path) -> List[Path]:
+        """获取目录中所有支持的图片文件."""
+        image_files = []
+        for fmt in self.config.supported_image_formats:
+            image_files.extend(input_path.glob(f"*.{fmt}"))
+            image_files.extend(input_path.glob(f"*.{fmt.upper()}"))
+        return sorted(set(image_files))
 
     def process_directory(
         self, input_dir: str, output_dir: str, pattern_prefix: str = ""
@@ -141,7 +163,10 @@ class PatternExtractor:
         output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
 
-        image_files = list(input_path.glob("*.png")) + list(input_path.glob("*.jpg"))
+        image_files = self._get_image_files(input_path)
+
+        logger.info(f"找到 {len(image_files)} 个图片文件")
+        logger.info(f"支持的格式: {self.config.supported_image_formats}")
 
         stats = {
             "total": len(image_files),
@@ -163,13 +188,19 @@ class PatternExtractor:
 
                     stats["success"] += 1
                     stats["total_patterns"] += len(patterns)
+                    logger.debug(f"保存 {len(patterns)} 个图案到 {output_path}")
                 else:
                     stats["success"] += 1
+                    logger.debug(f"未提取到图案: {image_file.name}")
 
             except Exception as e:
                 stats["failed"] += 1
-                stats["failed_files"].append((image_file.name, str(e)))
+                error_detail = f"{type(e).__name__}: {str(e)}"
+                stats["failed_files"].append((image_file.name, error_detail))
+                logger.error(f"处理失败 [{image_file.name}]: {error_detail}")
+                logger.debug(f"详细堆栈:\n{traceback.format_exc()}")
 
+        logger.info(f"处理完成: 成功 {stats['success']}, 失败 {stats['failed']}, 总图案 {stats['total_patterns']}")
         return stats
 
 

@@ -4,6 +4,8 @@
 注意: 不使用降级函数，必须有模型才能正常工作.
 """
 
+import logging
+from pathlib import Path
 from typing import List, Optional
 
 import cv2
@@ -11,6 +13,8 @@ import numpy as np
 from PIL import Image
 
 from ..image_analyzer import ImageAnalysis
+
+logger = logging.getLogger(__name__)
 
 
 class GroundedSAMStrategy:
@@ -36,6 +40,9 @@ class GroundedSAMStrategy:
             box_threshold: 检测框置信度阈值
             text_threshold: 文本匹配阈值
             device: 运行设备
+
+        Raises:
+            RuntimeError: 当模型加载失败时
         """
         self.box_threshold = box_threshold
         self.text_threshold = text_threshold
@@ -44,20 +51,49 @@ class GroundedSAMStrategy:
         self._load_models(grounding_dino_model, sam_model)
 
     def _load_models(self, grounding_dino_model: str, sam_model: str):
-        """加载 Grounding DINO 和 SAM 模型."""
-        from grounding_dino import GroundingDINO
-        from segment_anything import sam_model_registry
+        """加载 Grounding DINO 和 SAM 模型.
 
-        print(f"加载 Grounding DINO: {grounding_dino_model}")
-        self.grounding_model = GroundingDINO(
-            model_type="grounding_dino_s", device=self.device
-        )
-        self.grounding_model.load_checkpoint(grounding_dino_model)
+        Raises:
+            RuntimeError: 当模型文件不存在或加载失败时
+        """
+        # 检查模型文件是否存在
+        dino_path = Path(grounding_dino_model)
+        sam_path = Path(sam_model)
 
-        print(f"加载 SAM: {sam_model}")
-        self.sam_model = sam_model_registry["vit_l"](
-            checkpoint=sam_model, device=self.device
-        )
+        if not dino_path.exists():
+            error_msg = f"Grounding DINO 模型文件不存在: {grounding_dino_model}"
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
+
+        if not sam_path.exists():
+            error_msg = f"SAM 模型文件不存在: {sam_model}"
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
+
+        logger.info(f"加载 Grounding DINO: {grounding_dino_model}")
+        logger.info(f"加载 SAM: {sam_model}")
+
+        try:
+            from grounding_dino import GroundingDINO
+            from segment_anything import sam_model_registry
+
+            self.grounding_model = GroundingDINO(
+                model_type="grounding_dino_s", device=self.device
+            )
+            self.grounding_model.load_checkpoint(grounding_dino_model)
+
+            self.sam_model = sam_model_registry["vit_l"](
+                checkpoint=sam_model, device=self.device
+            )
+
+            logger.info("模型加载成功")
+        except Exception as e:
+            error_msg = f"模型加载失败: {type(e).__name__}: {e}"
+            logger.error(error_msg)
+            raise RuntimeError(
+                f"{error_msg}\n"
+                f"请检查模型文件是否完整且兼容。"
+            ) from e
 
     def extract(
         self,
@@ -81,9 +117,11 @@ class GroundedSAMStrategy:
 
         categories = analysis.categories
         if not categories:
-            raise RuntimeError("没有可识别的物体类别")
+            logger.warning("没有可识别的物体类别")
+            return []
 
         prompt = self._build_prompt(categories)
+        logger.debug(f"构建提示词: {prompt}")
 
         detections = self.grounding_model.predict_with_classes(
             image=img_array,
@@ -92,13 +130,15 @@ class GroundedSAMStrategy:
             text_threshold=self.text_threshold,
         )
 
+        logger.debug(f"检测到 {len(detections.xyxy)} 个目标")
+
         from segment_anything import SamPredictor
 
         predictor = SamPredictor(self.sam_model)
         predictor.set_image(img_array)
 
         all_masks = []
-        for box in detections.xyxy:
+        for i, box in enumerate(detections.xyxy):
             masks, scores, _ = predictor.predict(
                 point_coords=None,
                 point_labels=None,
@@ -108,11 +148,14 @@ class GroundedSAMStrategy:
 
             best_idx = np.argmax(scores)
             mask = masks[best_idx]
+            logger.debug(f"目标 {i}: 最佳分数={scores[best_idx]:.3f}")
 
             mask = self._postprocess_mask(mask, min_crop_size)
 
             if mask is not None:
                 all_masks.append(mask)
+
+        logger.debug(f"分割完成，有效掩码: {len(all_masks)}")
 
         patterns = []
         for mask in all_masks:
