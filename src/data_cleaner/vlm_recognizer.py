@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 class VLMRecognizer:
     """使用本地 VLM 识别图片中的物体/图案.
 
-    支持 Qwen2-VL 等本地部署的视觉大模型.
+    支持 Qwen2-VL 和 Qwen3-VL 等本地部署的视觉大模型.
     识别结果是英文类别列表，用于 Grounding DINO 检测.
 
     注意: 不使用降级函数，必须有本地模型才能正常工作.
@@ -49,7 +49,7 @@ class VLMRecognizer:
         Raises:
             RuntimeError: 当模型加载失败时
         """
-        from transformers import Qwen2VLForConditionalGeneration, AutoProcessor
+        from transformers import Qwen2VLForConditionalGeneration, AutoProcessor, AutoModelForVision2Seq
         from pathlib import Path
 
         # 检查模型路径是否存在
@@ -64,20 +64,37 @@ class VLMRecognizer:
 
         logger.info(f"加载 VLM 模型: {self.model_name}")
 
+        # 检测模型类型：Qwen3-VL 使用不同的模型类
+        is_qwen3 = "Qwen3-VL" in self.model_name or "Qwen3VL" in self.model_name
+        
         try:
-            self.model = Qwen2VLForConditionalGeneration.from_pretrained(
-                self.model_name,
-                torch_dtype="auto",
-                device_map="auto",
-            )
-            self.processor = AutoProcessor.from_pretrained(self.model_name)
+            if is_qwen3:
+                # Qwen3-VL 使用 AutoModelForVision2Seq
+                logger.info("检测到 Qwen3-VL 模型，使用 AutoModelForVision2Seq 加载")
+                self.model = AutoModelForVision2Seq.from_pretrained(
+                    self.model_name,
+                    torch_dtype="auto",
+                    device_map="auto",
+                    trust_remote_code=True,
+                )
+            else:
+                # Qwen2-VL 使用 Qwen2VLForConditionalGeneration
+                logger.info("使用 Qwen2VLForConditionalGeneration 加载模型")
+                self.model = Qwen2VLForConditionalGeneration.from_pretrained(
+                    self.model_name,
+                    torch_dtype="auto",
+                    device_map="auto",
+                )
+            
+            self.processor = AutoProcessor.from_pretrained(self.model_name, trust_remote_code=True)
             logger.info("VLM 模型加载成功")
         except Exception as e:
             error_msg = f"VLM 模型加载失败: {type(e).__name__}: {e}"
             logger.error(error_msg)
             raise RuntimeError(
                 f"{error_msg}\n"
-                f"请确保模型 '{self.model_name}' 已正确下载或安装。"
+                f"请确保模型 '{self.model_name}' 已正确下载或安装。\n"
+                f"如果是 Qwen3-VL 模型，请确保 transformers 库版本 >= 4.40.0。"
             ) from e
 
     def _build_prompt(self) -> str:
