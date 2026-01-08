@@ -29,10 +29,13 @@ def parse_args():
         """,
     )
 
+    # 默认配置文件路径（相对于模块文件）
+    default_config = Path(__file__).parent / "config.yaml"
+    
     parser.add_argument(
         "-c", "--config",
-        default="config.yaml",
-        help="配置文件路径 (默认: config.yaml)"
+        default=str(default_config),
+        help="配置文件路径 (默认: 相对于模块文件的 config.yaml)"
     )
 
     parser.add_argument(

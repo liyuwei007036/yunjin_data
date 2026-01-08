@@ -10,11 +10,11 @@ max_patterns_per_image: 20  # 单张图片最多输出图案数
 
 # VLM 模型配置 (用于纹样识别)
 use_vlm: true                    # 是否使用 VLM 识别纹样
-vlm_model: "Qwen/Qwen2-VL-7B-Instruct"  # VLM 模型名称
+vlm_model: "D:\\models\\Qwen3-VL-8B-Instruct"  # VLM 模型名称
 
 # Grounded SAM 模型配置 (用于纹样分割)
-grounding_dino_path: "models/grounding_dino/grounding_dino_swin-t_ogc.pth"  # Grounding DINO 模型路径
-sam_model_path: "models/sam/sam_vit_l_0b3195.pth"  # SAM 模型路径
+grounding_dino_path: "D:\\models\\GroundingDINO\\groundingdino_swint_ogc.pth"  # Grounding DINO 模型路径
+sam_model_path: "D:\\models\\sam_vit_l_0b3195\\sam_vit_l_0b3195.pth"  # SAM 模型路径
 
 # 分割参数
 box_threshold: 0.25     # 检测框置信度阈值

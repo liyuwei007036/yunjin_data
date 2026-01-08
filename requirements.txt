@@ -8,20 +8,26 @@ tqdm>=4.66.1
 
 # data_cleaner 依赖 (VLM + Grounded SAM)
 opencv-python>=4.8.0
-torch>=2.0.0
-torchvision>=0.15.0
+numpy>=1.24.0  # 缺失的依赖，代码中大量使用
+# 注意: PyTorch 需要手动安装 CUDA 版本，不要在这里添加，否则会安装 CPU 版本
+# CUDA 版本安装: pip install torch torchvision --index-url https://download.pytorch.org/whl/cu130
+# CPU 版本安装: pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 transformers>=4.35.0
 accelerate>=0.25.0
 huggingface_hub>=0.20.0
 pyyaml>=6.0
 
 # Grounded SAM 依赖
-# 注意: 需要先安装 CUDA 版本的 PyTorch
-git+https://github.com/IDEA-Research/Grounded-SAM-2.git
-segment-anything
-groundingdino
+# 注意: torch 和 torchvision 必须在安装这些包之前已经安装
+# Segment Anything Model (SAM) - Facebook Research
+git+https://github.com/facebookresearch/segment-anything.git
+# Grounding DINO - IDEA Research
+# 注意: 如果安装失败，可以尝试手动安装:
+# git clone https://github.com/IDEA-Research/GroundingDINO.git
+# cd GroundingDINO
+# pip install -e .
+git+https://github.com/IDEA-Research/GroundingDINO.git
+# 注意: Grounded-SAM-2 是一个整合项目，通常不需要单独安装
+# 如果需要，可以安装: git+https://github.com/IDEA-Research/Grounded-SAM-2.git
 
-# 开发依赖
-pytest>=7.4.0
-pytest-cov>=4.1.0
-ruff>=0.1.0
+

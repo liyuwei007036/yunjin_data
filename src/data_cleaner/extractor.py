@@ -33,7 +33,6 @@ class PatternExtractor:
     def __init__(self, config: Optional[Config] = None):
         self.config = config or Config()
         self.analyzer = ImageAnalyzer(
-            use_vlm=self.config.use_vlm,
             vlm_model=self.config.vlm_model
         )
 

@@ -74,7 +74,7 @@ class GroundedSAMStrategy:
         logger.info(f"加载 SAM: {sam_model}")
 
         try:
-            from grounding_dino import GroundingDINO
+            from groundingdino import GroundingDINO
             from segment_anything import sam_model_registry
 
             self.grounding_model = GroundingDINO(

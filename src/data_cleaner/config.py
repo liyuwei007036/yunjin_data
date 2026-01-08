@@ -35,11 +35,11 @@ class Config:
 
     # VLM 模型配置 (用于纹样识别)
     use_vlm: bool = True
-    vlm_model: str = "Qwen/Qwen2-VL-7B-Instruct"
+    vlm_model: str = ""
 
     # Grounded SAM 模型配置 (用于纹样分割)
-    grounding_dino_path: str = "models/grounding_dino/grounding_dino_swin-t_ogc.pth"
-    sam_model_path: str = "models/sam/sam_vit_l_0b3195.pth"
+    grounding_dino_path: str = ""
+    sam_model_path: str = ""
     box_threshold: float = 0.25
     text_threshold: float = 0.25
     sam_mask_threshold: float = 0.5
